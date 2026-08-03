@@ -19,9 +19,14 @@ spool/
 # --- Build output ---
 /bin/
 /dist/
-postbode
-postboded
-spike
+# Anchored to the repo root (leading /) so these never shadow the
+# like-named source directories cmd/postbode/ and cmd/spike/ — a bare
+# `spike` pattern here previously gitignored the entire cmd/spike/ source
+# tree (Phase 3's deliverable), which check-gitignore's secret-pattern scan
+# does not catch since these aren't F-63 secret patterns.
+/postbode
+/postboded
+/spike
 
 # --- Go / macOS noise ---
 *.test

@@ -29,7 +29,15 @@ check-gitignore:
 	  echo "Fix .gitignore before committing."; \
 	  exit 1; \
 	fi; \
-	echo "check-gitignore: ok"
+	swallowed=$$(git ls-files --others --ignored --exclude-standard 2>/dev/null \
+	  | grep -E '\.(go|mod|sum)$$' || true); \
+	if [ -n "$$swallowed" ]; then \
+	  echo "check-gitignore: FAIL — .gitignore is swallowing source files:"; \
+	  echo "$$swallowed" | sed 's/^/  /'; \
+	  echo "An over-broad pattern is hiding code from git. Anchor it with a leading /."; \
+	  exit 1; \
+	fi; \
+	echo "check-gitignore: ok (no leaked secrets, no swallowed source)"
 
 ## test-nonet: NF-09 gate — the suite must pass with no live API access.
 ## Enforced in-process by the dialer guard (AC-22), not by the environment.
@@ -38,8 +46,11 @@ test-nonet:
 
 ## spike: PRD P0. TOUCHES PRODUCTION — a real upload into a real accountant's
 ## queue. Requires CF_TOKEN and credentials.json. DELETE cmd/spike AFTER P1 (F-07).
+## Sources .env (gitignored, F-63) so the PAT never has to live in a shell profile
+## or be passed on the command line where it would land in shell history.
 spike:
-	go run ./cmd/spike
+	@test -f .env || { echo "spike: .env not found. Create it with:  CF_TOKEN=<your 80-char PAT>"; exit 1; }
+	@set -a; . ./.env; set +a; go run ./cmd/spike $(SPIKE_ARGS)
 
 ## e2e-dry: full pipeline against a fixture mailbox and fake upload server (NF-10)
 e2e-dry:
