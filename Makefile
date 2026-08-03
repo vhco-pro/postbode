@@ -48,9 +48,15 @@ test-nonet:
 ## queue. Requires CF_TOKEN and credentials.json. DELETE cmd/spike AFTER P1 (F-07).
 ## Sources .env (gitignored, F-63) so the PAT never has to live in a shell profile
 ## or be passed on the command line where it would land in shell history.
+## Uses CF_TOKEN from the environment if already set; otherwise sources .env.
 spike:
-	@test -f .env || { echo "spike: .env not found. Create it with:  CF_TOKEN=<your 80-char PAT>"; exit 1; }
-	@set -a; . ./.env; set +a; go run ./cmd/spike $(SPIKE_ARGS)
+	@if [ -z "$$CF_TOKEN" ] && [ ! -f .env ]; then \
+	  echo "spike: no CF_TOKEN in the environment and no .env file."; \
+	  echo "  either:  export CF_TOKEN=<80-char PAT>   (this shell only)"; \
+	  echo "  or:      echo \"CF_TOKEN=\$$CF_TOKEN\" > .env   (gitignored, survives across shells)"; \
+	  exit 1; \
+	fi
+	@set -a; [ -f .env ] && . ./.env; set +a; go run ./cmd/spike $(SPIKE_ARGS)
 
 ## e2e-dry: full pipeline against a fixture mailbox and fake upload server (NF-10)
 e2e-dry:
