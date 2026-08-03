@@ -303,8 +303,24 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 - [ ] Place the OAuth token acquisition/refresh code in `internal/gmailwatch/auth.go` and the label resolver in `internal/gmailwatch/labels.go` from the start — the spike calls them. Phase 15's deletion of `cmd/spike` must remove no production logic.
 - [ ] **Record the OQ-8 outcome in this plan's §Open Questions** and mark Phase 14 as either scheduled or dropped.
 
+**Executed live 2026-08-03. Results:**
+
+| Leg | Result | Evidence |
+|---|---|---|
+| (a) `administrations` | **PASS** | `companyNumber=1031077138` — bare, **not** `BE`-prefixed as the schema example implies (A-15). Written to config. |
+| (b) upload | **PASS** *(after a fix)* | `uuid=114ACDC3-8F1D-42AF-825B-FE9B3D2BCD53`, `amountOfPages=1` |
+| (c) `document(id:)` verify | **PASS** | `verified: true`; `type=PURCHASE`, `paymentState=UNPAID` |
+| (c2) provenance readback | **PASS** | `comment` round-trips on both `Document` and `File`; `tags=[]` |
+| (e) `companyStatistics` probe | **PASS (negative)** | All 8 candidate `type` strings rejected → **OQ-8 closed, Phase 14 dropped** |
+| (d) Gmail auth + label | **DEFERRED** | `credentials.json` absent (D-2 unmet). Skipped cleanly, exit 0. |
+
+> **The upload initially failed** with `Internal server error` and was root-caused by single-variable isolation against the live API: **`tags` is broken server-side.** `comment`-only succeeds, `tags`-only fails, `comment`+`tags` fails; file content is irrelevant (a 345-byte generated PDF and a 15 KB real PDF behave identically). The published schema documents `tags` as writable — it is not. F-56 now stamps `comment` alone (spec v1.4), and the client carries an inverted regression test asserting the `tags` key is **absent**.
+>
+> **Diagnosis cost 4 live documents**, not the 1 this phase anticipated, because isolating the variable required successful uploads as controls: `991AF69D…`, `7A262F7D…`, `89457063…`, `114ACDC3…` — all named `TEST-postbode-ignore.pdf`. All four need deleting from "In verwerking".
+
 **Exit gate (human, not automated)**:
-- [ ] Developer opens the portal, confirms **exactly one** `TEST-postbode-ignore.pdf` appeared in "In verwerking", and deletes it (AC-5, D-4). Nothing in this phase may assert "it appeared in the portal" on its own.
+- [ ] Developer opens the portal, confirms the `TEST-postbode-ignore.pdf` uploads appeared in "In verwerking", and **deletes all four** (AC-5, D-4). Nothing in this phase may assert "it appeared in the portal" on its own.
+- [ ] Re-run leg (d) once `credentials.json` exists (D-2), to close AC-4.
 
 **Depends on**: Phase 2, D-1, D-2, D-3
 
@@ -507,7 +523,13 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 
 ---
 
-### Phase 14: CONDITIONAL — F-57 aggregate reconciliation
+### Phase 14: ~~CONDITIONAL — F-57 aggregate reconciliation~~ — **DROPPED 2026-08-03**
+
+> **The condition failed.** The Phase 3 F-08 probe tried all eight candidate `type` strings against the live `companyStatistics` query — `DOCUMENTS`, `INVOICES`, `PURCHASE`, `documents`, `invoices`, `UPLOADS`, `INBOX`, `COUNT` — and every one returned the identical error *"Invalid type for getCompanyStatistics query."* OQ-8 is closed negative, F-57 and AC-30 are struck in spec v1.4, and **nothing in this phase is built**. The conditional framing worked exactly as intended: zero speculative implementation, and the negative result is on the record instead of being quietly dropped.
+>
+> Standing consequence for every later phase: **Postbode has no portal-side duplicate check at any granularity.** Per-document is impossible (OQ-4, no list query) and aggregate is impossible (OQ-8). L1–L4 plus the F-56 `comment` stamp are the entire duplicate story. Do not weaken them on the assumption that something server-side will catch a miss.
+
+<details><summary>Original phase definition (retained for audit)</summary>
 
 **Priority: LOW — CONDITIONAL. Do not implement speculatively.**
 
@@ -522,6 +544,8 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 - [ ] **The spec defines no acceptance criterion for F-57.** If this phase is gated in, a spec revision must add one before it can be marked complete (OQ-P10)
 
 **Depends on**: Phase 3 (gate result), Phase 13
+
+</details>
 
 ---
 

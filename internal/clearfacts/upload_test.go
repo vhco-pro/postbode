@@ -94,9 +94,14 @@ func TestUploadFileStampsProvenance(t *testing.T) {
 
 	req := srv.Requests()[0]
 
-	tags, ok := req.Variables["tags"].([]any)
-	if !ok || len(tags) != 1 || tags[0] != "postbode" {
-		t.Errorf("variables.tags = %v, want [\"postbode\"]", req.Variables["tags"])
+	// `tags` MUST NOT be sent. The published schema documents it as a writable
+	// [String] argument, but api.clearfacts.be returns an Internal server error
+	// for any upload carrying it — isolated live on 2026-08-03 (comment-only
+	// succeeds, tags-only fails). This assertion is inverted on purpose: it is
+	// the regression guard that stops someone re-adding `tags` from the docs.
+	if _, present := req.Variables["tags"]; present {
+		t.Errorf("variables.tags = %v, want the key to be absent entirely; "+
+			"sending tags makes the live API 500", req.Variables["tags"])
 	}
 
 	comment, _ := req.Variables["comment"].(string)

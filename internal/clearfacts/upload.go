@@ -12,8 +12,24 @@ import (
 // schema (spec §6.1): companyNumber, never the deprecated vatnumber.
 // invoicetype is nullable in the schema but Postbode always sends PURCHASE
 // explicitly (A-12).
-const uploadFileMutation = `mutation UploadFile($companyNumber: String, $filename: String!, $comment: String, $tags: [String], $invoicetype: InvoiceTypeArgument) {
-  uploadFile(companyNumber: $companyNumber, filename: $filename, comment: $comment, tags: $tags, invoicetype: $invoicetype) {
+// NOTE — `tags` is deliberately NOT sent, despite the published schema
+// documenting it as a writable `[String]` argument on uploadFile.
+//
+// Verified live against api.clearfacts.be on 2026-08-03 during the Phase 3
+// spike, isolated to a single variable:
+//
+//	comment only          -> 200, comment reads back correctly
+//	tags only             -> 200 body with {"errors":[{"message":"Internal
+//	                         server error"}]}, data.uploadFile = null
+//	comment + tags        -> same Internal server error
+//
+// So the server 500s on any upload carrying `tags`, regardless of the file.
+// `tags` remains readable (it comes back as an empty array), so it stays in
+// the response selection below and on the File struct. Provenance is carried
+// by `comment` alone (F-56, spec v1.4). Do not "restore" tags from the
+// schema docs — the schema is right and the server is broken.
+const uploadFileMutation = `mutation UploadFile($companyNumber: String, $filename: String!, $comment: String, $invoicetype: InvoiceTypeArgument) {
+  uploadFile(companyNumber: $companyNumber, filename: $filename, comment: $comment, invoicetype: $invoicetype) {
     uuid
     name
     amountOfPages
@@ -68,7 +84,6 @@ func (c *Client) UploadFile(ctx context.Context, in UploadInput) (*File, error) 
 		"companyNumber": in.CompanyNumber,
 		"filename":      in.Filename,
 		"comment":       ProvenanceComment(in.ItemID, in.GmailMessageID, in.SHA256),
-		"tags":          ProvenanceTags(),
 		"invoicetype":   "PURCHASE",
 	}
 
@@ -90,8 +105,14 @@ func (c *Client) UploadFile(ctx context.Context, in UploadInput) (*File, error) 
 // embedded in the provenance comment (F-56).
 const provenanceCommentSHAPrefixLen = 12
 
-// ProvenanceTags returns the fixed provenance tag set every Postbode upload
-// carries (F-56).
+// ProvenanceTags returns the tag set Postbode WOULD stamp on every upload if
+// the server accepted it.
+//
+// It is retained but deliberately UNUSED by UploadFile: sending `tags` makes
+// api.clearfacts.be return an Internal server error (see the note on
+// uploadFileMutation). Kept so the intent is recorded and so re-enabling is a
+// one-line change if ClearFacts ever fixes it — re-enable only with a fresh
+// live check, never on the strength of the schema docs alone.
 func ProvenanceTags() []string { return []string{"postbode"} }
 
 // ProvenanceComment builds the F-56 provenance comment:
