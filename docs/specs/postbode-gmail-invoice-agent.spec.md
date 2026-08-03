@@ -1,8 +1,9 @@
 ## SPECIFICATION: Postbode — Gmail → ClearFacts/QPS Invoice Agent
 
-**Version:** 1.4
-**Status:** Draft — **P0 spike executed live 2026-08-03**; ClearFacts legs all pass, Gmail leg deferred pending `credentials.json`.
+**Version:** 1.5
+**Status:** Draft — **P0 spike executed live 2026-08-03** (ClearFacts legs pass, Gmail leg deferred pending `credentials.json`); Phase 4 queue implemented.
 **Changelog:**
+- **v1.5** — Added the `item_transition` table to §5.2. F-41 mandates that every lifecycle transition be logged with timestamp and actor, but the five entities in §5.2 gave it nowhere to live (`decision_log` belongs to `rules` and records message-level queue/deny decisions, not item-level transitions). Additive only. Surfaced by the Phase 4 implementation.
 - **v1.4 — first revision driven by evidence from the live API rather than documentation.** Three findings, all from the Phase 3 spike:
   1. **`tags` is broken server-side.** The published schema documents `tags: [String]` as a writable `uploadFile` argument, but *any* upload carrying it returns `{"errors":[{"message":"Internal server error"}]}` with `data.uploadFile = null`. Isolated by single-variable testing: `comment`-only succeeds, `tags`-only fails, `comment`+`tags` fails. **F-56 provenance now uses `comment` alone.** `tags` remains *readable* (returns `[]`).
   2. **OQ-8 closed negative.** All eight candidate `type` strings for `companyStatistics` were rejected with *"Invalid type for getCompanyStatistics query"*. **F-57 and AC-30 are struck; Phase 14 is dropped.** No aggregate reconciliation is possible.
@@ -221,6 +222,7 @@ flowchart LR
 | `vendor_teaching` | queue | `vendor_domain` (PK), `identity_key`, `reason` (`already_in_portal` / `known_peppol`), `marked_at`, `note` |
 | `sync_state` | gmailwatch | `history_id`, `last_poll_at`, `label_id_submitted`, `token_issued_at` |
 | `decision_log` | rules | `id`, `gmail_message_id`, `decision`, `matched_rule_index`, `reason`, `at` |
+| `item_transition` | queue | `id`, `item_id` (FK), `from_status`, `to_status`, `actor` (`human`/`daemon`), `at`, `reason` — **added v1.5 (Phase 4 implementation finding).** F-41 requires *"every transition logged with timestamp and actor"* but §5.2 as written gave it no home: `decision_log` is owned by `rules` and records queue/deny/no-match decisions about *messages*, not lifecycle transitions of *items*. Purely additive — no column on the other five entities changes. |
 
 Constraints: unique index on `item.sha256` where `status IN ('staged','approved','uploaded','already_in_portal')`; unique index on `message.gmail_message_id`; `item.uuid` unique when non-null.
 
