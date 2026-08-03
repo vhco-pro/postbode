@@ -253,13 +253,13 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 **Goal**: A committable, buildable, testable empty skeleton in which no secret can be accidentally tracked, with the quality gate wired before any code exists.
 
 **Tasks**:
-- [ ] Write `.gitignore` covering `credentials.json`, `token.json` / any token cache, `spool/`, `*.db`, `*.db-wal`, `*.db-shm`, `.env`, `session.token`, and build output — **and commit it as the first commit on `main`** (F-63)
-- [ ] `go mod init github.com/vhco-pro/postbode`; add the NF-13 dependency set plus `gopkg.in/yaml.v3` (see §Dependencies note) (A-6, NF-13)
-- [ ] Create the F-66 layout: `cmd/postbode/`, `cmd/spike/`, `internal/{gmailwatch,extract,rules,queue,clearfacts,webui,keychain,config}/`, `testdata/`, `tests/e2e/`, `launchd/`, `docs/`
-- [ ] `Makefile` with `build`, `test`, `vet`, `spike`, `e2e-dry`, `test-nonet`, `install-launchagent` targets; `test` and `vet` must pass on the empty tree (NF-12)
-- [ ] `CLAUDE.md` from the PRD §13.3 starter, amended per F-67 with: the `vhco-pro` module path, the four-layer dedup rule and the never-auto-suppress invariant, and the "no test touches live APIs" rule (F-67)
-- [ ] `docs/imap-escape-hatch.md` documenting the IMAP + app-password fallback as a non-implemented escape hatch (F-18)
-- [ ] Add a `make check-gitignore` guard that fails if any of the F-63 patterns appear in `git status --porcelain` output as untracked-unignored, and wire it into `make test`
+- [x] Write `.gitignore` covering `credentials.json`, `token.json` / any token cache, `spool/`, `*.db`, `*.db-wal`, `*.db-shm`, `.env`, `session.token`, and build output — **and commit it as the first commit on `main`** (F-63) — commit `9ad33c6`, the only file in it
+- [x] `go mod init github.com/vhco-pro/postbode`; add the NF-13 dependency set plus `gopkg.in/yaml.v3` (see §Dependencies note) (A-6, NF-13) — all 5 direct deps resolved
+- [x] Create the F-66 layout: `cmd/postbode/`, `cmd/spike/`, `internal/{gmailwatch,extract,rules,queue,clearfacts,webui,keychain,config}/`, `testdata/`, `tests/e2e/`, `launchd/`, `docs/`
+- [x] `Makefile` with `build`, `test`, `vet`, `spike`, `e2e-dry`, `test-nonet`, `install-launchagent` targets; `test` and `vet` must pass on the empty tree (NF-12) — **deviation:** a literally empty tree makes `go test ./...` exit non-zero ("matched no packages"), so a minimal `cmd/postbode` dispatch skeleton + test landed in this phase to make the gate meaningful rather than tautological
+- [x] `CLAUDE.md` from the PRD §13.3 starter, amended per F-67 with: the `vhco-pro` module path, the four-layer dedup rule and the never-auto-suppress invariant, and the "no test touches live APIs" rule (F-67)
+- [x] `docs/imap-escape-hatch.md` documenting the IMAP + app-password fallback as a non-implemented escape hatch (F-18)
+- [x] Add a `make check-gitignore` guard that fails if any of the F-63 patterns appear in `git status --porcelain` output as untracked-unignored, and wire it into `make test` — **negative-tested**: removing the `credentials.json` rule makes it exit 2 and name the file
 
 **Depends on**: None
 
@@ -272,15 +272,15 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 **Goal**: A fully unit-tested ClearFacts client covering every call the product will ever make, plus a reusable `httptest` fake that every later phase drives its upload assertions against.
 
 **Tasks**:
-- [ ] `uploadFile` as `multipart/form-data` with parts `query`, `variables`, `file`; always `companyNumber`, never `vatnumber`; `invoicetype: PURCHASE` sent explicitly even though the schema marks it nullable (F-50, A-12)
-- [ ] Provenance arguments on every upload: `tags: ["postbode"]`, `comment: "postbode <item-id> · <gmail-message-id> · <sha256-prefix>"` (F-56)
-- [ ] `administrations(offset, first) { companyNumber }` query (F-01)
-- [ ] `document(id:)` read returning `{date, comment, type, paymentState, file{uuid,name,amountOfPages,comment,tags}}` (F-05, F-37)
-- [ ] `companyStatistics(type, startPeriod, endPeriod, companyNumber, invoicetype)` call with a caller-supplied `type` string, for the Phase 3 probe (F-08)
-- [ ] Error classification function: 401/403 → terminal `failed` + notify-worthy; 4xx except 429 → terminal `failed`; 429/5xx/network → retryable with backoff schedule 1m→2h, give up at 24h (F-51). **Classification only — persistence and scheduling belong to Phase 9.**
-- [ ] Rate discipline: `max_concurrent` (default 1) and `min_interval` (default 2s) enforced inside the client (F-54)
-- [ ] PAT sourced through an interface (env in dev, Keychain in prod — Keychain impl lands Phase 13) and redacted to `cf_***` in every log line, error string and `%v` formatting path (F-55)
-- [ ] `internal/clearfacts/fake/` — an `httptest` server mimicking the multipart contract, scriptable to return 200 / 400 / 503 sequences / malformed GraphQL errors (NF-09)
+- [x] `uploadFile` as `multipart/form-data` with parts `query`, `variables`, `file`; always `companyNumber`, never `vatnumber`; `invoicetype: PURCHASE` sent explicitly even though the schema marks it nullable (F-50, A-12) — `internal/clearfacts/upload.go`
+- [x] Provenance arguments on every upload: `tags: ["postbode"]`, `comment: "postbode <item-id> · <gmail-message-id> · <sha256-prefix>"` (F-56) — computed internally by `UploadFile`, never caller-suppliable, so it cannot be forgotten
+- [x] `administrations(offset, first) { companyNumber }` query (F-01) — `internal/clearfacts/administrations.go`
+- [x] `document(id:)` read returning `{date, comment, type, paymentState, file{uuid,name,amountOfPages,comment,tags}}` (F-05, F-37) — `internal/clearfacts/document.go`, inline fragment on `InvoiceDocument`
+- [x] `companyStatistics(type, startPeriod, endPeriod, companyNumber, invoicetype)` call with a caller-supplied `type` string, for the Phase 3 probe (F-08) — `internal/clearfacts/statistics.go`
+- [x] Error classification function: 401/403 → terminal `failed` + notify-worthy; 4xx except 429 → terminal `failed`; 429/5xx/network → retryable with backoff schedule 1m→2h, give up at 24h (F-51). **Classification only — persistence and scheduling belong to Phase 9.** — `internal/clearfacts/classify.go` (`Classify`, `Backoff`, `ShouldGiveUp`)
+- [x] Rate discipline: `max_concurrent` (default 1) and `min_interval` (default 2s) enforced inside the client (F-54) — `internal/clearfacts/ratelimit.go`
+- [x] PAT sourced through an interface (env in dev, Keychain in prod — Keychain impl lands Phase 13) and redacted to `cf_***` in every log line, error string and `%v` formatting path (F-55) — `internal/clearfacts/token.go`
+- [x] `internal/clearfacts/fake/` — an `httptest` server mimicking the multipart contract, scriptable to return 200 / 400 / 503 sequences / malformed GraphQL errors (NF-09) — `internal/clearfacts/fake/fake.go`
 
 **Depends on**: Phase 1
 
