@@ -1,0 +1,30 @@
+# Postbode — F-63. This file is the FIRST commit on main and is a one-way door:
+# this repo has no remote, so a secret committed here cannot be force-pushed away.
+# Verified by `make check-gitignore` (wired into `make test`).
+
+# --- Credentials and secrets (NEVER commit) ---
+credentials.json
+token.json
+*.token
+session.token
+.env
+.env.*
+
+# --- Local state: queue database and extracted invoice files ---
+spool/
+*.db
+*.db-wal
+*.db-shm
+
+# --- Build output ---
+/bin/
+/dist/
+postbode
+postboded
+spike
+
+# --- Go / macOS noise ---
+*.test
+*.out
+coverage.*
+.DS_Store
