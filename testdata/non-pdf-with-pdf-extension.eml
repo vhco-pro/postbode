@@ -1,0 +1,19 @@
+From: vendor@example.com
+To: michiel@vhco.pro
+Subject: Mislabeled attachment
+Date: Mon, 3 Aug 2026 09:00:00 +0200
+Message-ID: <non-pdf-with-pdf-extension@fixtures.postbode>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="NONPDFBOUNDARY"
+
+--NONPDFBOUNDARY
+Content-Type: text/plain; charset=utf-8
+
+See attached.
+--NONPDFBOUNDARY
+Content-Type: application/octet-stream; name="not-actually-a-pdf.pdf"
+Content-Disposition: attachment; filename="not-actually-a-pdf.pdf"
+Content-Transfer-Encoding: base64
+
+SGVsbG8sIHRoaXMgaXMgcGxhaW4gdGV4dCBwcmV0ZW5kaW5nIHRvIGJlIGEgUERGLg==
+--NONPDFBOUNDARY--

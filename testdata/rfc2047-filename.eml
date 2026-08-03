@@ -1,0 +1,25 @@
+From: factures@fournisseur.example.fr
+To: michiel@vhco.pro
+Subject: Votre facture
+Date: Mon, 3 Aug 2026 09:00:00 +0200
+Message-ID: <rfc2047-filename@fixtures.postbode>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="RFC2047BOUNDARY"
+
+--RFC2047BOUNDARY
+Content-Type: text/plain; charset=utf-8
+
+Voir la facture ci-jointe.
+--RFC2047BOUNDARY
+Content-Type: application/pdf; name="=?UTF-8?b?ZmFjdHVyZS3DqXTDqS5wZGY=?="
+Content-Disposition: attachment; filename="=?UTF-8?b?ZmFjdHVyZS3DqXTDqS5wZGY=?="
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2Jq
+CjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2Jq
+CjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCAyMTAg
+Mjk3XSAvUmVzb3VyY2VzIDw8ID4+ID4+CmVuZG9iagp4cmVmCjAgNAowMDAwMDAwMDAwIDY1NTM1
+IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBuIAowMDAwMDAwMTE1IDAw
+MDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNCAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKMjAzCiUl
+RU9G
+--RFC2047BOUNDARY--
