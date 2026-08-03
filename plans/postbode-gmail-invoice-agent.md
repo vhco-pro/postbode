@@ -62,7 +62,7 @@ Two structural additions: **Phase 1** hard-gates `.gitignore` before the first c
 |---|---|---|---|
 | D-1 | **ClearFacts PAT** | `app.myqps.be` → profile → *Persoonlijke toegangstokens* → *Nieuwe token aanmaken*. Scopes: `upload_document`, `read_administrations`, **and `statistics`**. Exported as `CF_TOKEN` in the dev shell. | Phase 3 |
 | D-2 | **Google OAuth desktop client** | `console.cloud.google.com` → project → enable Gmail API → consent screen (External) → *Desktop app* credentials → save as `credentials.json` in repo root (**gitignored — Phase 1 must land first**). Human clicks consent once. | Phase 3 |
-| D-3 | **`vh&co/submitted` label exists in Gmail** | Nested label, exact full name. Postbode resolves it by name and must never create it (F-15). | Phase 3, Phase 7 |
+| D-3 | **`VH&Co/submitted` label exists in Gmail** | Nested label, exact full name. Postbode resolves it by name and must never create it (F-15). | Phase 3, Phase 7 |
 | D-4 | **Portal cleanup authorization** | Developer deletes `TEST-postbode-ignore.pdf` from "In verwerking" after Phase 3 (A-5). | Phase 3 exit |
 
 > **D-1 is a one-way door.** ClearFacts scopes are fixed at token-creation time; adding `statistics` later means minting a new token. Mint it now even though F-57 is conditional — the cost of including it is zero, the cost of omitting it is a token rotation mid-build (spec §11).
@@ -136,7 +136,7 @@ flowchart LR
   UI -- Already in portal --> AIP[already_in_portal + teach vendor]
   AP --> UP[Uploader uploadFile PURCHASE]
   UP --> VER[document id verify: uuid + verified_at]
-  VER --> LBL[label vh&co/submitted only when ALL docs uploaded]
+  VER --> LBL[label VH&Co/submitted only when ALL docs uploaded]
 ```
 
 ### Phase dependency graph
@@ -211,7 +211,7 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 - [ ] AC-1: `go run ./cmd/spike` prints at least one administration with a non-empty `companyNumber`, and writes that value into `~/.config/postbode/config.yaml` under `administration.company_number`. *(F-01, A-12)* — **Phase 3**
 - [ ] AC-2: The spike uploads `TEST-postbode-ignore.pdf` with `invoicetype: PURCHASE` and prints a non-empty `uuid` plus `amountOfPages`; the same line names the file and administration. *(F-02, F-04)* — **Phase 3** (support: Phase 2)
 - [ ] AC-3: Immediately after AC-2 the spike calls `document(id: <uuid>)` and prints `verified: true` on a resolving response. *(F-05, F-37)* — **Phase 3** (support: Phase 2)
-- [ ] AC-4: The spike prints the 5 newest Gmail message ids and the resolved label ID for `vh&co/submitted`. With that label renamed/absent, the spike exits non-zero with an explicit "label not found, refusing to create" message and creates no label. *(F-03, F-15)* — **Phase 3** (regression-tested against a Gmail fake in Phase 7)
+- [ ] AC-4: The spike prints the 5 newest Gmail message ids and the resolved label ID for `VH&Co/submitted`. With that label renamed/absent, the spike exits non-zero with an explicit "label not found, refusing to create" message and creates no label. *(F-03, F-15)* — **Phase 3** (regression-tested against a Gmail fake in Phase 7)
 - [ ] AC-5: The developer confirms in the portal that exactly one `TEST-postbode-ignore.pdf` appeared in "In verwerking" and deletes it. Human-confirmed, not assumed. *(NF-11)* — **Phase 3 — HUMAN GATE, no automated assertion**
 - [ ] AC-5b: The spike calls `companyStatistics` for the current month with `invoicetype: PURCHASE`, trying each candidate `type` string, and prints either the returned `{period, value}` items with the `type` that worked, or an explicit "no working `type` found". Either outcome is a pass. *(F-08)* — **Phase 3** (decides Phase 14)
 - [ ] AC-5c: The spike's upload passes `companyNumber` (never the deprecated `vatnumber`) and sets `tags: ["postbode"]` plus a provenance `comment`; the follow-up `document(id: <uuid>)` reads both back unchanged. *(F-06, F-56)* — **Phase 3** (support: Phase 2)
@@ -298,7 +298,7 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 - [ ] Round-trip (b): upload exactly one `TEST-postbode-ignore.pdf` as `invoicetype: PURCHASE`; print a single announcement line containing `uuid`, `filename` and destination administration (F-02, F-04, NF-11, AC-2)
 - [ ] Round-trip (c): `document(id: <uuid>)` immediately after, print `verified: true` on a resolving response (F-05, AC-3)
 - [ ] Signature + provenance confirmation: assert `companyNumber` was sent and no `vatnumber` key exists; print the returned `File` payload; read `tags` and `comment` back unchanged (F-06, F-56, AC-5c)
-- [ ] Round-trip (d): Gmail OAuth desktop flow, list the 5 newest message ids, resolve `vh&co/submitted` by **exact full name**; on absence exit non-zero with "label not found, refusing to create" and create nothing (F-03, F-15, AC-4)
+- [ ] Round-trip (d): Gmail OAuth desktop flow, list the 5 newest message ids, resolve `VH&Co/submitted` by **exact full name**; on absence exit non-zero with "label not found, refusing to create" and create nothing (F-03, F-15, AC-4)
 - [ ] Round-trip (e): `companyStatistics` probe for the current month with `invoicetype: PURCHASE`, iterating candidate `type` strings; print the working `type` with its `{period, value}` items, or an explicit "no working `type` found" (F-08, AC-5b)
 - [ ] Place the OAuth token acquisition/refresh code in `internal/gmailwatch/auth.go` and the label resolver in `internal/gmailwatch/labels.go` from the start — the spike calls them. Phase 15's deletion of `cmd/spike` must remove no production logic.
 - [ ] **Record the OQ-8 outcome in this plan's §Open Questions** and mark Phase 14 as either scheduled or dropped.
@@ -312,7 +312,11 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 | (c) `document(id:)` verify | **PASS** | `verified: true`; `type=PURCHASE`, `paymentState=UNPAID` |
 | (c2) provenance readback | **PASS** | `comment` round-trips on both `Document` and `File`; `tags=[]` |
 | (e) `companyStatistics` probe | **PASS (negative)** | All 8 candidate `type` strings rejected → **OQ-8 closed, Phase 14 dropped** |
-| (d) Gmail auth + label | **DEFERRED** | `credentials.json` absent (D-2 unmet). Skipped cleanly, exit 0. |
+| (d) Gmail auth + label | **PASS** *(2026-08-04, after a fix)* | OAuth desktop flow completed, 5 newest message ids listed, token cached at `0600`, label resolved `VH&Co/submitted` id=`Label_2`. A second run refreshed with no re-consent. |
+
+> **Leg (d) first failed correctly.** `vh&co/submitted` — the name in the PRD and in the spec through v1.5 — **does not exist**; the mailbox has `VH&Co/submitted`. F-15 refused to create a lookalike and exited non-zero, which is precisely the failure this requirement exists to force: auto-creating a near-identical label would have silently orphaned every processed message under it. Name corrected repo-wide, with a case-insensitive fallback added (safe: Gmail forbids two user labels differing only in case, and matching never creates).
+>
+> **D-2 also resolved OQ-1 favourably.** The app is registered **Internal** on Google Workspace with the watched mailbox inside the org, so the 7-day refresh-token expiry — scoped by Google to *External + Testing* — does not apply. Re-auth is no longer a weekly event (spec v1.6); F-16 remains P0 for genuine revocation.
 
 > **The upload initially failed** with `Internal server error` and was root-caused by single-variable isolation against the live API: **`tags` is broken server-side.** `comment`-only succeeds, `tags`-only fails, `comment`+`tags` fails; file content is irrelevant (a 345-byte generated PDF and a 15 KB real PDF behave identically). The published schema documents `tags` as writable — it is not. F-56 now stamps `comment` alone (spec v1.4), and the client carries an inverted regression test asserting the `tags` key is **absent**.
 >
@@ -399,7 +403,7 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 - [ ] Label resolution by exact full name at startup; if absent → fail loudly, notify, refuse to start the uploader while the watcher keeps polling and staging (F-15). **Distinguish "label absent" from "cannot check because re-auth is pending"** — the second must not trip the refusal (OQ-P7)
 - [ ] Re-auth as a routine event: on `invalid_grant` / refresh expiry, emit a macOS notification with a one-click re-auth URL, keep the queue and all state intact, keep the process alive, retry the auth check every poll tick, never silently stop polling (F-16, AC-20)
 - [ ] Persist `token_issued_at` and expose token age + computed expiry (issue time + 7 days in Testing mode) + `re-auth needed` flag through the queue's `sync_state` for Phase 10 to print (F-17)
-- [ ] No Gmail state written other than the `vh&co/submitted` label (F-19)
+- [ ] No Gmail state written other than the `VH&Co/submitted` label (F-19)
 - [ ] Gmail `httptest` fake with pagination, history-gap 404, replayable history responses, and a scriptable OAuth endpoint returning `invalid_grant` (NF-09)
 - [ ] History replay test: the same history response twice yields exactly one set of items, a `skip (L1)` log line and zero new rows (F-30, AC-10)
 
@@ -443,7 +447,7 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 - [ ] Honour `max_concurrent_uploads` (default 1) and `min_interval` (default 2s) (F-54)
 - [ ] Proof of delivery: store the returned `uuid`, then call `document(id:)` and store `verified_at`; an item with a `uuid` but no `verified_at` displays as `uploaded (unverified)` and is **never retried** — a retry risks a real portal duplicate, which violates G-2 harder than an unverified row does (F-37). See ADR-003.
 - [ ] Provenance stamping asserted end-to-end through the UI approve path (F-56, AC-15)
-- [ ] Label application (F-14, AC-19): after **all** documents extracted from a message reach terminal `uploaded`, issue exactly one `messages.modify` adding `vh&co/submitted` and removing `INBOX`. Never modify a message with a non-terminal document. **This task is moved here from the spec's step 7 — see §Context deviations.**
+- [ ] Label application (F-14, AC-19): after **all** documents extracted from a message reach terminal `uploaded`, issue exactly one `messages.modify` adding `VH&Co/submitted` and removing `INBOX`. Never modify a message with a non-terminal document. **This task is moved here from the spec's step 7 — see §Context deviations.**
 - [ ] 401/403 → terminal `failed` + notification "PAT invalid or scope missing", no retry storm (F-51, NF-02)
 
 **Depends on**: Phase 7, Phase 8, Phase 2

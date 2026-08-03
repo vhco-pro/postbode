@@ -41,7 +41,7 @@ Case 3 is the interesting one, because the intuitive engineering reflex — "ret
 
 **Never retry the unverified.** An item with a `uuid` but no `verified_at` is displayed as `uploaded (unverified)`, surfaced in `postbode status`, and **is not retried automatically**. A retry risks creating a real duplicate in the portal — which violates G-2 harder than an unverified row violates anything. The correct resolution is a human looking at the portal, which is exactly what the `uploaded (unverified)` display asks for.
 
-**Label move is downstream of terminal upload.** `messages.modify` (add `vh&co/submitted`, remove `INBOX`) fires only once **all** documents extracted from a message reach terminal `uploaded` — exactly one modify call per message, never on a message with a non-terminal document (F-14).
+**Label move is downstream of terminal upload.** `messages.modify` (add `VH&Co/submitted`, remove `INBOX`) fires only once **all** documents extracted from a message reach terminal `uploaded` — exactly one modify call per message, never on a message with a non-terminal document (F-14).
 
 ## Alternatives Considered
 

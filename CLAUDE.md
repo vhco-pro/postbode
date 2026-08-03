@@ -23,7 +23,7 @@ Gmail → ClearFacts/QPS purchase-invoice agent. Single-user macOS launchd daemo
 - **Live uploads land in a real accountant's queue.** Any test upload uses the filename prefix
   `TEST-postbode-ignore` and must be reported to the user with its `uuid` so they can delete it in
   the portal. "It appeared in the portal" is human-confirmed, never assumed.
-- **The Gmail label `vh&co/submitted` is resolved by exact full name, never created.** Only an
+- **The Gmail label `VH&Co/submitted` is resolved by exact full name, never created.** Only an
   authenticated `labels.list` that returns *without* the name counts as absent — an auth failure or
   pending re-auth is not "absent" and must not trigger the refusal path.
 - Run `make test && go vet ./...` before declaring any task done.

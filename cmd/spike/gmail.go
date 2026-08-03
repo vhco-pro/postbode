@@ -12,7 +12,7 @@ import (
 
 // runGmailLeg is round-trip (d) (F-03, F-15, AC-4): OAuth desktop consent
 // (or a cached, refreshed token), list the 5 newest Gmail message ids, and
-// resolve `vh&co/submitted` by exact name — never creating it. This is
+// resolve `VH&Co/submitted` by exact name — never creating it. This is
 // deliberately a thin wrapper: all the logic lives in internal/gmailwatch
 // (auth.go, labels.go) so that deleting cmd/spike in Phase 15 removes no
 // production code.

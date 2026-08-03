@@ -22,7 +22,7 @@ becomes intolerable and publishing to Production doesn't resolve it, IMAP is the
 
 | Loss | Consequence |
 |---|---|
-| **No label writes** | The `vh&co/submitted` move (F-14) is gone. Processed mail stays in the inbox and *all* "have I handled this" state lives in SQLite. L1 becomes the only thing standing between you and reprocessing the entire mailbox. |
+| **No label writes** | The `VH&Co/submitted` move (F-14) is gone. Processed mail stays in the inbox and *all* "have I handled this" state lives in SQLite. L1 becomes the only thing standing between you and reprocessing the entire mailbox. |
 | **Broader access** | An app password grants **full mailbox access**, not the read-plus-label-write that the OAuth scopes are limited to (NF-02). This is strictly worse for a tool that reads personal mail. |
 | **No history sync** | `history.list` incremental sync (F-12) has no IMAP equivalent. You fall back to UID-range scanning, and the crash/gap semantics F-13 handles get re-derived from scratch. |
 
