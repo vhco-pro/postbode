@@ -45,10 +45,16 @@ jobs:
       # installed". The action both installs and runs it, so this step is
       # also the lint gate; `make test` re-running it is a few seconds and
       # keeps the local and CI gates identical rather than subtly different.
+      # action v8 + a pinned v2.x: .golangci.yml is v2 format, and action v6
+      # installs golangci-lint v1.64.8, which is built with go1.24 and
+      # refuses a go1.26.5 target ("Go language version used to build
+      # golangci-lint is lower than the targeted Go version"). `latest`
+      # resolves within the action's own major line, so it does not help.
+      # Pinned rather than floating so CI runs the same version as local.
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.12.2
 
       - name: go test (NF-12 gate)
         run: make test
