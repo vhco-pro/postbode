@@ -25,6 +25,11 @@ var pageTemplate = template.Must(template.New("").ParseFS(templateFS, "templates
 type Server struct {
 	db    *queue.DB
 	token string
+	// OnApprove, when non-nil, is called after an item transitions to
+	// approved. It exists so the daemon can start uploading immediately
+	// instead of waiting for its next tick — see Daemon.Nudge. It must not
+	// block: the handler calls it on the request path.
+	OnApprove func()
 }
 
 // NewServer builds a Server bound to db and protected by token. token

@@ -220,6 +220,11 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 		Logf:          logf,
 	}
 
+	// Pressing Approve drains immediately instead of waiting for the next
+	// upload tick. Without this the queue is still correct, just slow to
+	// visibly react, which reads as broken.
+	uiSrv.OnApprove = d.Nudge
+
 	var wg sync.WaitGroup
 	var uiErr, daemonErr error
 	wg.Add(2)

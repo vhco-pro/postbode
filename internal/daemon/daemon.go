@@ -39,6 +39,20 @@ const defaultPollInterval = 5 * time.Minute
 // defaultPruneInterval is how often PruneOnce runs on its own tick.
 const defaultPruneInterval = 24 * time.Hour
 
+// defaultUploadInterval is how often approved items are drained.
+//
+// Uploads deliberately do NOT ride the poll ticker. They used to, and the
+// result was that clicking Approve appeared to do nothing for up to a full
+// PollInterval — five minutes of a correct system looking broken. Polling
+// Gmail every five minutes is right; waiting five minutes to act on a
+// button the human just pressed is not.
+//
+// Draining is cheap (one indexed query for approved items, almost always
+// returning nothing), so a short cadence costs effectively nothing. It is
+// also the backstop for retries and for any approval that arrives while
+// Nudge's buffer is already full.
+const defaultUploadInterval = 15 * time.Second
+
 // defaultStaleClaimAge is the startup ReleaseStaleClaims age (uploader.go's
 // own doc: must be "long enough that a live uploader instance's own
 // in-flight claim could never look stale" — a single upload attempt is
@@ -77,6 +91,10 @@ type Daemon struct {
 	// defaultStaleClaimAge's doc for why this must never be 0.
 	StaleClaimAge time.Duration
 
+	// UploadInterval is how often approved items are drained, independent
+	// of PollInterval. <= 0 uses the default (15s).
+	UploadInterval time.Duration
+
 	// Logf, when set, receives one line per notable event. Nil is a
 	// valid, silent default — mirrors gmailwatch.Watcher.Logf and
 	// uploader.Uploader.Logf's convention.
@@ -84,6 +102,48 @@ type Daemon struct {
 
 	mu            sync.Mutex
 	labelResolved bool
+
+	nudgeOnce sync.Once
+	nudge     chan struct{}
+}
+
+// Nudge asks the daemon to drain approved items now rather than waiting for
+// the next upload tick. Safe to call from any goroutine, never blocks, and
+// is a no-op before Run starts.
+//
+// Wire it to webui.Server.OnApprove so pressing Approve acts immediately.
+// The channel is buffered depth 1 and sends are dropped when full: a
+// pending drain will already pick up whatever else was approved in the
+// meantime, so coalescing is the correct behaviour rather than a lost
+// signal.
+func (d *Daemon) Nudge() {
+	select {
+	case d.nudgeChan() <- struct{}{}:
+	default:
+	}
+}
+
+func (d *Daemon) nudgeChan() chan struct{} {
+	d.nudgeOnce.Do(func() { d.nudge = make(chan struct{}, 1) })
+	return d.nudge
+}
+
+func (d *Daemon) uploadInterval() time.Duration {
+	if d.UploadInterval <= 0 {
+		return defaultUploadInterval
+	}
+	return d.UploadInterval
+}
+
+// drainUploads runs one upload pass, gated on the submitted label being
+// resolved (F-15).
+func (d *Daemon) drainUploads(ctx context.Context) {
+	if !d.ensureLabelResolved(ctx) {
+		return
+	}
+	if _, err := d.Uploader.RunBatch(ctx); err != nil {
+		d.logf("daemon: upload: %v", err)
+	}
 }
 
 func (d *Daemon) logf(format string, args ...any) {
@@ -217,6 +277,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	defer pollTicker.Stop()
 	pruneTicker := time.NewTicker(d.pruneInterval())
 	defer pruneTicker.Stop()
+	uploadTicker := time.NewTicker(d.uploadInterval())
+	defer uploadTicker.Stop()
+	nudge := d.nudgeChan()
 
 	for {
 		select {
@@ -224,6 +287,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 			return nil
 		case <-pollTicker.C:
 			d.RunIteration(ctx)
+		case <-uploadTicker.C:
+			// Uploads run on their own cadence, not the poll's. See
+			// defaultUploadInterval.
+			d.drainUploads(ctx)
+		case <-nudge:
+			// Someone just approved something in the UI: act now.
+			d.drainUploads(ctx)
 		case <-pruneTicker.C:
 			d.PruneOnce(ctx)
 		}

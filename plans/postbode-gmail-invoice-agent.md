@@ -768,3 +768,16 @@ Effort legend: **S** ≤ half a day · **M** 1–2 days · **L** 3+ days · **GA
 | **OQ-P11** | **NF-02 lists PAT scopes `upload_document` + `read_administrations`, but F-57 needs `statistics`**, and ClearFacts fixes scopes at token-creation time. | Mint the PAT with all three now (D-1). Cost of including it is zero; cost of omitting it is a mid-build token rotation. Reconcile NF-02 in a spec revision. | Phase 3 (D-1) |
 | **OQ-P12** | **F-56 stamps the `gmail_message_id` into a portal-visible `comment`**, exporting a Gmail identifier into a third-party system, which sits slightly uneasily beside NF-05's privacy posture. | Accept — it is an opaque id, not content, and it is the mechanism that makes channel attribution possible at all. Flagged for the record, not for change. | No |
 | **OQ-P13** | **AC-21's "connection to the host's LAN IP is refused" is environment-dependent** — a machine with no LAN IP, or one behind a personal firewall, makes the assertion either impossible or vacuously true. | Assert the bind address on the listener directly **and** attempt the LAN-IP dial when a non-loopback interface exists, skipping with a logged reason when it does not. | Phase 8 |
+
+---
+
+### Post-P1 field fixes (2026-08-04, from first real use)
+
+Not a phase — defects found by the developer running the installed daemon against real mail, recorded here so the trail from symptom to fix survives.
+
+| Symptom reported | Root cause | Fix |
+|---|---|---|
+| *"I just see a notification, nothing else"* | The staging notification said `Postbode: N invoices waiting for review.` and stopped. An `osascript` notification is not clickable and cannot launch anything, so it announced work and offered no route to it. | F-45 amended (spec v1.8): appends `Run: postbode review`; plural agrees with the count. Test guards the call to action. |
+| *"I approved 2 items — did they behave as expected?"* | Uploads rode the 5-minute poll ticker. Approvals sat in `approved`, unclaimed, no error, until the next poll. Correct, but indistinguishable from broken. | **F-58 (new, spec v1.8):** uploads get their own 15s cadence plus `Daemon.Nudge`, signalled from `webui.Server.OnApprove`, so a drain starts immediately. AC-31. |
+| Keychain reported `unexpected end of JSON input` on every read | `security(1)`'s `-w` prompt is line-based and capped at 128 chars; the OAuth token is multi-line, ~500-byte JSON. Reads are ambiguous too: `-w` prints hex for any non-printable byte. | Store tagged base64 (`pb1:`) via argv. Round-trip tested against the real Keychain for PAT, >128-char and multi-line shapes. |
+| Brew-installed daemon never authenticated | `credentials.json` was a relative path; a launchd service has no meaningful CWD. Silent, because a missing credentials file is a legitimate pre-bootstrap state. | Resolution order: `POSTBODE_CREDENTIALS_PATH` → Application Support → relative. |

@@ -102,6 +102,7 @@ func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 		writeTransitionError(w, err)
 		return
 	}
+	s.notifyApproved()
 	s.redirectHome(w, r)
 }
 
@@ -210,13 +211,29 @@ func (s *Server) handleApproveAll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	approved := 0
 	for _, item := range items {
 		if !approvable(item) {
 			continue
 		}
-		_ = s.db.Approve(ctx, item.ID, queue.ActorHuman)
+		if err := s.db.Approve(ctx, item.ID, queue.ActorHuman); err == nil {
+			approved++
+		}
+	}
+	if approved > 0 {
+		s.notifyApproved()
 	}
 	s.redirectHome(w, r)
+}
+
+// notifyApproved tells the daemon something is ready to upload, so it can
+// act now instead of on its next tick. Never blocks and never fails the
+// request: the approval is already committed, and the upload ticker is the
+// backstop if this does nothing.
+func (s *Server) notifyApproved() {
+	if s.OnApprove != nil {
+		s.OnApprove()
+	}
 }
 
 // redirectHome sends a 303 back to the list view, carrying the session
