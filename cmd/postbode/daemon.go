@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/vhco-pro/postbode/internal/clearfacts"
 	"github.com/vhco-pro/postbode/internal/cli"
@@ -257,18 +258,38 @@ func buildGmailService(ctx context.Context, home string, logf func(string, ...an
 	// (and therefore a real oauth2.Config) is confirmed to exist — see
 	// runDaemon's comment on this ordering.
 	store := keychain.Store(keychain.DarwinStore{})
-	if err := migrateLegacyGmailToken(ctx, store, legacyGmailTokenCachePath(home)); err != nil {
+	legacyPath := legacyGmailTokenCachePath(home)
+
+	// Every Keychain call is time-bounded. security(1) raises a macOS
+	// authorization prompt the first time an item is written or read by a
+	// new binary, and a launchd agent has no one to click it — the call
+	// then blocks until something kills it. An unbounded Keychain call is
+	// therefore a hang, not an error, which is the worst failure shape for
+	// a daemon that is supposed to keep polling.
+	kcCtx, cancel := context.WithTimeout(ctx, keychainTimeout)
+	defer cancel()
+
+	if err := migrateLegacyGmailToken(kcCtx, store, legacyPath); err != nil {
 		logf("daemon: legacy Gmail token migration: %v", err)
 	}
 
-	tok, err := keychain.LoadGmailToken(ctx, store)
+	tok, err := keychain.LoadGmailToken(kcCtx, store)
 	if err != nil {
-		if errors.Is(err, keychain.ErrNotFound) {
-			logf("daemon: no Gmail token in the Keychain yet — Gmail is not authenticated yet")
-		} else {
-			logf("daemon: load gmail token from keychain: %v", err)
+		// ANY Keychain failure falls back to the on-disk cache — not just
+		// ErrNotFound. A denied or timed-out prompt is a storage-preference
+		// problem, and treating it as "no credentials" would strand a
+		// perfectly usable token on disk and stop the daemon from ever
+		// polling: a self-inflicted outage. The token is what matters;
+		// where it is kept is secondary.
+		legacyTok, lerr := gmailwatch.LoadCachedToken(legacyPath)
+		if lerr != nil {
+			logf("daemon: no Gmail token in the Keychain (%v) and none cached on disk — not authenticated yet", err)
+			return nil, nil
 		}
-		return nil, nil
+		logf("daemon: Keychain unavailable (%v); using the on-disk token cache at %s. "+
+			"To move it into the Keychain, run the daemon once from a terminal and "+
+			"click Always Allow on the prompt.", err, legacyPath)
+		tok = legacyTok
 	}
 	svc, err := gmailwatch.NewService(ctx, oauthCfg, tok)
 	if err != nil {
@@ -282,6 +303,14 @@ func buildGmailService(ctx context.Context, home string, logf func(string, ...an
 // Gmail token into the Keychain, exactly once (a no-op once the Keychain
 // already has one). See legacyGmailTokenCachePath's doc for why the disk
 // file itself is never deleted.
+// keychainTimeout bounds every security(1) call. The first read or write
+// by a new binary raises a macOS authorization prompt; a launchd agent has
+// nobody to click it, so the call would otherwise block forever. Generous
+// enough for a human to click Always Allow when run from a terminal, short
+// enough that an unattended daemon falls through to the on-disk cache and
+// keeps polling.
+const keychainTimeout = 20 * time.Second
+
 func migrateLegacyGmailToken(ctx context.Context, store keychain.Store, legacyPath string) error {
 	if _, err := keychain.LoadGmailToken(ctx, store); err == nil {
 		return nil
