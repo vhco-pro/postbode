@@ -245,7 +245,7 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 		// (G-1). But nothing can be approved without the UI, so say so
 		// loudly in the log and to the user, rather than pretending.
 		logf("daemon: REVIEW UI UNAVAILABLE — could not bind %s: %v", webui.DefaultAddr, lerr)
-		logf("daemon: another postbode is probably already running; check `pgrep -fl postbode`. "+
+		logf("daemon: another postbode is probably already running; check `pgrep -fl postbode`. " +
 			"Polling and staging continue, but nothing can be approved or uploaded until this is resolved.")
 		_ = notifier.Notify(ctx, fmt.Sprintf("Postbode: review UI could not start on %s — another copy may be running.", webui.DefaultAddr))
 		wg.Add(1)
