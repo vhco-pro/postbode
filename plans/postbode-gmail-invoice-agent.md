@@ -222,7 +222,7 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 - [ ] AC-7: Given a password-protected PDF fixture, the item is staged with `needs_manual_handling=true`, is not uploadable from the UI, and is never sent to the fake upload server. *(F-22)* — **Phase 5** (UI half re-verified in Phase 8)
 - [ ] AC-8: Rules table test: for the exact `config.yaml` in PRD §6.3, an email from `news@newsletter.example.com` with a PDF yields decision `denied` (rule index 2), and an email from `billing@ovh.com` with a PDF yields `queued` (rule index 0). Both appear in `decision_log`. *(F-26, F-28)* — **Phase 6**
 - [ ] AC-9: With no rule matching, an email carrying a PDF and the subject "Uw factuur juli" is queued with `low_confidence=true`. *(F-27, F-47)* — **Phase 6**
-- [ ] AC-10: Replaying the same Gmail history response twice produces exactly one set of items; the second pass writes a `skip (L1)` log line and creates zero rows. *(F-30)* — **Phase 7** (mechanism: Phase 4)
+- [x] AC-10: Replaying the same Gmail history response twice produces exactly one set of items; the second pass writes a `skip (L1)` log line and creates zero rows. *(F-30)* — **Phase 7** (mechanism: Phase 4)
 - [ ] AC-11: Two different emails carrying byte-identical PDFs produce one uploadable item; the second is `linked_item_id`-bound with `dedup_layer='L2'` and is never POSTed to the fake upload server. *(F-31)* — **Phase 4** (re-verified end-to-end in Phase 11)
 - [ ] AC-12: Two emails carrying different bytes but the same `(vendor_domain, invoice_number, invoice_date, total_amount)` both stage, and the second shows a `possible duplicate of #<id>` badge with the first item's status and uuid. Neither is auto-suppressed. *(F-32, F-33)* — **Phase 12**
 - [ ] AC-13: `POST /items/{id}/already-in-portal` sets status `already_in_portal`, writes a `vendor_teaching` row, and performs zero upload calls. A subsequent item from the same `vendor_domain` stages with `probably_already_handled=true` and the UI shows the reason and the teaching date. *(F-34, F-35)* — **Phase 12** (endpoint delivered in Phase 8)
@@ -396,16 +396,16 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 **Goal**: An unattended poller that recovers from a 14-day offline period, treats re-auth as routine, and never writes Gmail state beyond the one label.
 
 **Tasks**:
-- [ ] OAuth desktop client, scopes `gmail.readonly` + `gmail.modify`; refresh token cached locally; access token never written to config (F-10) — extends the Phase 3 `auth.go`
-- [ ] Watch scope is the whole `INBOX`, configurable via `gmail.watch: inbox` (F-11)
-- [ ] Poll every `gmail.poll_interval` (default 5m) using incremental `history.list` from the stored `historyId`, with correct pagination (F-12)
-- [ ] Fallback on first run or any history gap / `404 historyId not found`: `messages.list` with `has:attachment OR (invoice OR factuur)` bounded by `gmail.query_window_days` (default 30). **Add `in:inbox` and `newer_than:{N}d` to the query** — the spec's literal query is neither inbox-scoped nor date-bounded, contradicting F-11 (see OQ-P6) (F-13)
-- [ ] Label resolution by exact full name at startup; if absent → fail loudly, notify, refuse to start the uploader while the watcher keeps polling and staging (F-15). **Distinguish "label absent" from "cannot check because re-auth is pending"** — the second must not trip the refusal (OQ-P7)
-- [ ] Re-auth as a routine event: on `invalid_grant` / refresh expiry, emit a macOS notification with a one-click re-auth URL, keep the queue and all state intact, keep the process alive, retry the auth check every poll tick, never silently stop polling (F-16, AC-20)
-- [ ] Persist `token_issued_at` and expose token age + computed expiry (issue time + 7 days in Testing mode) + `re-auth needed` flag through the queue's `sync_state` for Phase 10 to print (F-17)
-- [ ] No Gmail state written other than the `VH&Co/submitted` label (F-19)
-- [ ] Gmail `httptest` fake with pagination, history-gap 404, replayable history responses, and a scriptable OAuth endpoint returning `invalid_grant` (NF-09)
-- [ ] History replay test: the same history response twice yields exactly one set of items, a `skip (L1)` log line and zero new rows (F-30, AC-10)
+- [x] OAuth desktop client, scopes `gmail.readonly` + `gmail.modify`; refresh token cached locally; access token never written to config (F-10) — extends the Phase 3 `auth.go` (unchanged; `Watcher.RecordTokenIssued` added to persist `token_issued_at` after a successful interactive auth)
+- [x] Watch scope is the whole `INBOX`, configurable via `gmail.watch: inbox` (F-11) — `history.go`'s `effectiveLabelID`, tested in `scope_test.go`
+- [x] Poll every `gmail.poll_interval` (default 5m) using incremental `history.list` from the stored `historyId`, with correct pagination (F-12) — `history.go` (`historySync`, using `Pages`); the daemon's own ticker driving `gmail.poll_interval` is `cmd/postboded`'s job (out of this phase's scope, per the plan's file map)
+- [x] Fallback on first run or any history gap / `404 historyId not found`: `messages.list` with `has:attachment OR (invoice OR factuur)` bounded by `gmail.query_window_days` (default 30). **Add `in:inbox` and `newer_than:{N}d` to the query** — the spec's literal query is neither inbox-scoped nor date-bounded, contradicting F-11 (see OQ-P6) (F-13) — `fallback.go` (`FallbackQuery`, `fallbackList`), proven by `fallback_query_test.go`
+- [x] Label resolution by exact full name at startup; if absent → fail loudly, notify, refuse to start the uploader while the watcher keeps polling and staging (F-15). **Distinguish "label absent" from "cannot check because re-auth is pending"** — the second must not trip the refusal (OQ-P7) — `label.go`'s `ResolveAndPersistSubmittedLabel` wraps the existing `ResolveLabel` (Phase 3) verbatim, no reimplementation
+- [x] Re-auth as a routine event: on `invalid_grant` / refresh expiry, emit a macOS notification with a one-click re-auth URL, keep the queue and all state intact, keep the process alive, retry the auth check every poll tick, never silently stop polling (F-16, AC-20) — `reauth.go` + `poll.go`, proven by `reauth_test.go`
+- [x] Persist `token_issued_at` and expose token age + `re-auth needed` flag through the queue's `sync_state` for Phase 10 to print (F-17) — `queue.SyncState.LastAuthError` (schema migration v2, additive) + `Watcher.RecordTokenIssued`/`handleReauth`. **Deviation from the literal task text:** "computed expiry (issue time + 7 days in Testing mode)" is deliberately NOT implemented — spec v1.6 struck that expectation once the app was confirmed registered Internal on Workspace, for which no fixed refresh-token lifetime exists to compute (see spec F-17's v1.6 amendment note). `postbode status` (Phase 10) reports observed token age, not a predicted expiry.
+- [x] No Gmail state written other than the `VH&Co/submitted` label (F-19) — proven by `no_side_effects_test.go` (zero `messages.modify` calls during `Poll`); `ApplyLabel` exists only as a callable primitive, never invoked by `Poll` itself
+- [x] Gmail `httptest` fake with pagination, history-gap 404, replayable history responses, and a scriptable OAuth endpoint returning `invalid_grant` (NF-09) — `internal/gmailwatch/fake/fake.go`
+- [x] History replay test: the same history response twice yields exactly one set of items, a `skip (L1)` log line and zero new rows (F-30, AC-10) — `history_replay_test.go`
 
 **Depends on**: Phase 3 (auth foundation), Phase 5, Phase 6
 
@@ -550,6 +550,35 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 **Depends on**: Phase 3 (gate result), Phase 13
 
 </details>
+
+---
+
+### Phase 16: Release engineering — house conventions from `template-go-app`
+
+**Priority: MEDIUM** — added 2026-08-04 at the developer's request: *"add my default packaging pipelines and conventions around versioning from template-go-app, I use the same flow for all my go apps."* Source of truth is `~/code/personal/template-go-app`. Runnable any time after Phase 13; ordered last because it is orthogonal to the product pipeline.
+
+**Goal**: Postbode releases the same way every other `michielvha` Go app does — GitVersion-driven semver from conventional commits, GoReleaser-built signed artifacts, golangci-lint in the same shape.
+
+**Tasks**:
+- [ ] `gitversion.yml` — copied from the template: `GitHubFlow/v1`, **unprefixed tags** (`0.0.1`, not `v0.0.1`), `Loose` semver, `commit-message-incrementing: Enabled`, and the house bump regexes (`feat:` → minor, `fix|perf|refactor|revert:` → patch, `BREAKING CHANGE`/`!:` → major, `chore|docs|style|test|ci:` → no bump)
+- [ ] `.goreleaser.yml` — `version: 2`, `CGO_ENABLED=0` (already true here: `modernc.org/sqlite` is pure Go, NF-01), `-trimpath`, ldflags `-s -w -X main.version={{.Version}} -X main.commit={{.Commit}}`, zip archives, `SHA256SUMS`, GPG detached signing of the checksum file, and the template's conventional-commit changelog groups
+- [ ] **`main.version` / `main.commit` vars in `cmd/postbode/main.go` plus a `postbode version` subcommand.** The ldflags above inject into variables that do not exist yet — without this the release builds but reports nothing. Extends F-60's subcommand set.
+- [ ] `.golangci.yml` — the template's v2 config: `govet, errcheck, staticcheck, unused, gocritic` + formatters `gofumpt, goimports, gci, gofmt`. **Then fix what it reports** — this is a stricter bar than `go vet`, especially `errcheck` and `gofumpt`
+- [ ] `make lint` target wired to `golangci-lint run`, and added to the `make test` gate chain
+- [ ] `.github/workflows/build-and-release.yaml` — the template's three-step flow (`michielvha/gitversion-tag-action` → `michielvha/goreleaser-action` → docker step, see deviation below), **plus the lint/test steps the template leaves as a `TODO`**, since this repo has a real suite
+- [ ] Document the conventional-commit contract in `CLAUDE.md` so future sessions write commit messages that drive versioning correctly
+
+**Deliberate deviations from the template, each needing a decision (see OQ-P14):**
+
+| Template does | Postbode should | Why |
+|---|---|---|
+| Builds `windows`, `linux`, `darwin` × `amd64`, `arm64` | **`darwin` only** (both arches) | Postbode shells out to `osascript` and `launchctl`, stores secrets in the macOS Keychain and is installed as a launchd LaunchAgent. A Linux or Windows binary would build and then fail at runtime — shipping one is a promise the product cannot keep. |
+| Builds and pushes a `ghcr.io` container image (alpine, non-root) | **Omit the Docker step** | Same reason, plus spec §9 explicitly excludes container images. There is no meaningful container for a macOS desktop daemon that talks to the Keychain and the user's notification centre. |
+| `permissions: packages: write` for the registry | Drop `packages: write` | Unused once the Docker step goes; least privilege. |
+
+**Blocked on**: **the repo has no git remote.** GitHub Actions cannot run until it exists under `vhco-pro`. Everything except the workflow actually executing can be built and verified locally.
+
+**Depends on**: Phase 13
 
 ---
 

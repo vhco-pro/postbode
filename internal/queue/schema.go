@@ -133,4 +133,15 @@ var migrations = []migration{
 			`CREATE INDEX idx_item_transition_item_id ON item_transition(item_id)`,
 		},
 	},
+	{
+		// Phase 7 addition: sync_state.last_auth_error exposes F-16/F-17's
+		// "re-auth needed" flag through sync_state, alongside history_id,
+		// last_poll_at, label_id_submitted and token_issued_at. Additive
+		// only — no existing column changes, so a database created by an
+		// earlier binary migrates forward with no wipe.
+		version: 2,
+		stmts: []string{
+			`ALTER TABLE sync_state ADD COLUMN last_auth_error TEXT`,
+		},
+	},
 }

@@ -105,6 +105,14 @@ type SyncState struct {
 	LastPollAt       *time.Time
 	LabelIDSubmitted string
 	TokenIssuedAt    *time.Time
+	// LastAuthError is a Phase 7 addition (F-16/F-17): non-empty exactly
+	// when the most recent poll could not reach Gmail because
+	// re-authentication is needed (an oauth2 RFC 6749 error code such as
+	// "invalid_grant"). Cleared on the next poll that reaches Gmail
+	// successfully, or when a fresh token is recorded via
+	// gmailwatch.Watcher.RecordTokenIssued. This is how F-17's "re-auth
+	// needed" flag is exposed through sync_state for Phase 10 to print.
+	LastAuthError string
 }
 
 // DecisionLogEntry mirrors the decision_log entity (spec §5.2), owned by

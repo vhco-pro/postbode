@@ -36,6 +36,40 @@ type ItemResult struct {
 	Stage            queue.StageResult
 }
 
+// Candidate is one extracted document offered to a Gate before any queue
+// row exists for it.
+type Candidate struct {
+	OrigFilename string
+	DeclaredMIME string
+	SniffedMIME  string
+	SHA256       string
+	IsPDF        bool
+	IsImage      bool
+}
+
+// Gate decides whether a candidate becomes a queue row at all. It runs
+// AFTER spooling (so the fail-safe ordering in ExtractMessage is intact)
+// but BEFORE StageItem.
+//
+// This exists because F-26's deny form means "never even queue", and
+// staging-then-rejecting is not the same thing: queue.StageItem's F-44
+// rejection memory makes a (gmail_message_id, sha256) pair permanently
+// unstageable once rejected. A document denied by a rule would therefore
+// be unrecoverable if the developer later added an allow rule for that
+// vendor — a silent, permanent miss, which is exactly what G-1 forbids.
+// Gating before the insert keeps a deny decision reversible: nothing is
+// written, so a config change genuinely takes effect on the next resync.
+//
+// A nil Gate stages everything.
+type Gate func(Candidate) (stage bool, reason string)
+
+// Denied records a candidate a Gate refused, so nothing disappears
+// without a trace (G-1). Its spool file is removed.
+type Denied struct {
+	Candidate
+	Reason string
+}
+
 // Result is the outcome of ExtractMessage.
 type Result struct {
 	// Skipped is true when the message had already been recorded (L1) —
@@ -46,10 +80,13 @@ type Result struct {
 	// message yielding N PDFs yields N entries here, all sharing the one
 	// GmailMessageID.
 	Items []ItemResult
+	// Denied holds candidates the Gate refused. They have no queue row and
+	// no spool file, so a later config change can recover them (F-26).
+	Denied []Denied
 	// Warnings holds non-fatal MIME parse/decode problems encountered
 	// while walking. Every part that did not become an Item is accounted
-	// for by either an Item (staged, possibly unsupported_type) or a
-	// Warning here — nothing disappears without a trace (G-1).
+	// for by either an Item (staged, possibly unsupported_type), a Denied
+	// entry, or a Warning here — nothing disappears without a trace (G-1).
 	Warnings []error
 }
 
@@ -59,6 +96,10 @@ type Result struct {
 type Extractor struct {
 	spooler *Spooler
 	db      *queue.DB
+	// Gate, when non-nil, decides per candidate whether a queue row is
+	// created at all. See the Gate doc for why this must happen before
+	// StageItem rather than as a reject afterwards.
+	Gate Gate
 }
 
 // New builds an Extractor spooling into spoolDir. Production wires
@@ -153,6 +194,7 @@ func (e *Extractor) ExtractMessage(ctx context.Context, msg Message) (Result, er
 	}
 
 	items := make([]ItemResult, 0, len(spooled))
+	var denied []Denied
 	for _, s := range spooled {
 		sniffed := SniffMIME(s.data) // F-25: real-content sniff, not the declared type
 		unsupported := sniffed == ""
@@ -166,6 +208,26 @@ func (e *Extractor) ExtractMessage(ctx context.Context, msg Message) (Result, er
 
 		proposed := ProposedFilename(msg.From, msg.InternalDate, s.filename) // F-23
 
+		// F-26 deny means "never even queue". Ask the Gate before any row
+		// exists: staging then rejecting would burn this (message_id,
+		// sha256) into F-44 rejection memory permanently, so a later allow
+		// rule could never recover the document.
+		if e.Gate != nil {
+			cand := Candidate{
+				OrigFilename: s.filename,
+				DeclaredMIME: s.declaredMIME,
+				SniffedMIME:  mimeForItem,
+				SHA256:       s.sha,
+				IsPDF:        sniffed == "application/pdf",
+				IsImage:      sniffed == "image/jpeg",
+			}
+			if stage, reason := e.Gate(cand); !stage {
+				_ = e.spooler.Remove(s.path)
+				denied = append(denied, Denied{Candidate: cand, Reason: reason})
+				continue
+			}
+		}
+
 		stageRes, serr := e.db.StageItem(ctx, queue.NewItem{
 			GmailMessageID:      msg.GmailMessageID,
 			SpoolPath:           s.path,
@@ -178,7 +240,7 @@ func (e *Extractor) ExtractMessage(ctx context.Context, msg Message) (Result, er
 			UnsupportedType:     unsupported,
 		})
 		if serr != nil {
-			return Result{Items: items, Warnings: warnings}, fmt.Errorf("extract: ExtractMessage(%s): stage item %q: %w", msg.GmailMessageID, s.filename, serr)
+			return Result{Items: items, Denied: denied, Warnings: warnings}, fmt.Errorf("extract: ExtractMessage(%s): stage item %q: %w", msg.GmailMessageID, s.filename, serr)
 		}
 
 		items = append(items, ItemResult{
@@ -192,5 +254,5 @@ func (e *Extractor) ExtractMessage(ctx context.Context, msg Message) (Result, er
 		})
 	}
 
-	return Result{Items: items, Warnings: warnings}, nil
+	return Result{Items: items, Denied: denied, Warnings: warnings}, nil
 }
