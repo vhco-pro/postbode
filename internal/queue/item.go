@@ -144,6 +144,31 @@ func (db *DB) ItemsBySHA256(ctx context.Context, sha256 string) ([]*Item, error)
 	return items, nil
 }
 
+// ListByStatus returns every item currently in status, oldest-staged first.
+// Added for Phase 8 (webui): the review UI's list view is exactly "every
+// item in status=staged", and "approve all" re-derives that same set at
+// request time rather than trusting a possibly-stale page (spec §8).
+func (db *DB) ListByStatus(ctx context.Context, status Status) ([]*Item, error) {
+	rows, err := db.sqlDB.QueryContext(ctx, `SELECT `+itemColumns+` FROM item WHERE status = ? ORDER BY staged_at, id`, string(status))
+	if err != nil {
+		return nil, fmt.Errorf("queue: ListByStatus(%s): %w", status, err)
+	}
+	defer rows.Close()
+
+	var items []*Item
+	for rows.Next() {
+		item, err := scanItem(rows)
+		if err != nil {
+			return nil, fmt.Errorf("queue: ListByStatus(%s): scan: %w", status, err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("queue: ListByStatus(%s): %w", status, err)
+	}
+	return items, nil
+}
+
 // ItemsByMessageID returns every item staged for the given gmail_message_id,
 // ordered by id.
 func (db *DB) ItemsByMessageID(ctx context.Context, gmailMessageID string) ([]*Item, error) {

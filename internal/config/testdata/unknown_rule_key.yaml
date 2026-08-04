@@ -1,0 +1,3 @@
+rules:
+  - match: { from: "*@ovh.com", has: pdf }
+  - match: { form: "*@github.com" }

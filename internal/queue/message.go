@@ -44,6 +44,46 @@ func (db *DB) RecordMessageIfNew(ctx context.Context, msg Message) (alreadySeen 
 	return n == 0, nil
 }
 
+// GetMessage reads one message by its gmail_message_id. Added for Phase 8
+// (webui): the review list view shows sender and subject per item (F-43),
+// which live on message, not item.
+func (db *DB) GetMessage(ctx context.Context, gmailMessageID string) (*Message, error) {
+	row := db.sqlDB.QueryRowContext(ctx, `
+		SELECT gmail_message_id, thread_id, "from", subject, internal_date,
+			first_seen_at, all_docs_uploaded_at, labeled_at
+		FROM message WHERE gmail_message_id = ?
+	`, gmailMessageID)
+
+	var (
+		m                            Message
+		threadID, from, subject      sql.NullString
+		internalDate, firstSeenAt    sql.NullString
+		allDocsUploadedAt, labeledAt sql.NullString
+	)
+	if err := row.Scan(&m.GmailMessageID, &threadID, &from, &subject, &internalDate,
+		&firstSeenAt, &allDocsUploadedAt, &labeledAt); err != nil {
+		return nil, fmt.Errorf("queue: GetMessage(%s): %w", gmailMessageID, err)
+	}
+	m.ThreadID = threadID.String
+	m.From = from.String
+	m.Subject = subject.String
+
+	var err error
+	if m.InternalDate, err = parseTime(internalDate); err != nil {
+		return nil, fmt.Errorf("queue: GetMessage(%s): parse internal_date: %w", gmailMessageID, err)
+	}
+	if m.FirstSeenAt, err = parseTime(firstSeenAt); err != nil {
+		return nil, fmt.Errorf("queue: GetMessage(%s): parse first_seen_at: %w", gmailMessageID, err)
+	}
+	if m.AllDocsUploadedAt, err = parseTimePtr(allDocsUploadedAt); err != nil {
+		return nil, fmt.Errorf("queue: GetMessage(%s): parse all_docs_uploaded_at: %w", gmailMessageID, err)
+	}
+	if m.LabeledAt, err = parseTimePtr(labeledAt); err != nil {
+		return nil, fmt.Errorf("queue: GetMessage(%s): parse labeled_at: %w", gmailMessageID, err)
+	}
+	return &m, nil
+}
+
 // MessageSeen reports whether gmailMessageID has already been recorded by
 // RecordMessageIfNew (F-30, L1).
 func (db *DB) MessageSeen(ctx context.Context, gmailMessageID string) (bool, error) {

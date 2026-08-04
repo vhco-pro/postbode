@@ -115,6 +115,73 @@ func (db *DB) MarkAlreadyInPortal(ctx context.Context, itemID int64, actor Actor
 	return db.transition(ctx, itemID, StatusAlreadyInPortal, actor, nil)
 }
 
+// MarkAlreadyInPortalWithTeaching is MarkAlreadyInPortal plus the F-34/F-35
+// vendor_teaching write the doc comment above anticipated, done inside the
+// same transaction as the status transition (AC-13: "sets status
+// already_in_portal, writes a vendor_teaching row" — a crash between two
+// separate calls could otherwise leave one written without the other).
+// teaching.VendorDomain is required (it is vendor_teaching's primary key);
+// an existing row for the same domain is overwritten (upsert), since a
+// human re-teaching the same vendor should win over a stale row.
+// teaching.MarkedAt defaults to time.Now().UTC() when zero. Performs zero
+// upload calls — it only writes local rows (F-34).
+func (db *DB) MarkAlreadyInPortalWithTeaching(ctx context.Context, itemID int64, actor Actor, teaching VendorTeaching) error {
+	if teaching.VendorDomain == "" {
+		return errors.New("queue: MarkAlreadyInPortalWithTeaching: vendor domain is required")
+	}
+	markedAt := teaching.MarkedAt
+	if markedAt.IsZero() {
+		markedAt = time.Now().UTC()
+	}
+	return db.transition(ctx, itemID, StatusAlreadyInPortal, actor, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO vendor_teaching (vendor_domain, identity_key, reason, marked_at, note)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(vendor_domain) DO UPDATE SET
+				identity_key = excluded.identity_key,
+				reason       = excluded.reason,
+				marked_at    = excluded.marked_at,
+				note         = excluded.note
+		`, teaching.VendorDomain, stringOrNil(teaching.IdentityKey), teaching.Reason, timeToDB(markedAt), stringOrNil(teaching.Note))
+		return err
+	})
+}
+
+// GetVendorTeachingByIdentityKey looks up a vendor_teaching row by the
+// identity_key an "already in portal" action recorded it under — the join
+// key already available on Item today, used by the webui (Phase 8) to
+// render the F-35 "probably already handled" badge's reason and teaching
+// date. Returns sql.ErrNoRows (wrapped) when identityKey is empty or no
+// row matches. The L4 matching engine that sets an item's
+// probably_already_handled flag at staging time is Phase 12's job; this
+// method only supports rendering once that flag is set.
+func (db *DB) GetVendorTeachingByIdentityKey(ctx context.Context, identityKey string) (*VendorTeaching, error) {
+	if identityKey == "" {
+		return nil, fmt.Errorf("queue: GetVendorTeachingByIdentityKey(%q): %w", identityKey, sql.ErrNoRows)
+	}
+	row := db.sqlDB.QueryRowContext(ctx, `
+		SELECT vendor_domain, identity_key, reason, marked_at, note
+		FROM vendor_teaching WHERE identity_key = ? LIMIT 1
+	`, identityKey)
+
+	var (
+		vt                   VendorTeaching
+		identityKeyCol, note sql.NullString
+		markedAt             string
+	)
+	if err := row.Scan(&vt.VendorDomain, &identityKeyCol, &vt.Reason, &markedAt, &note); err != nil {
+		return nil, fmt.Errorf("queue: GetVendorTeachingByIdentityKey(%q): %w", identityKey, err)
+	}
+	vt.IdentityKey = identityKeyCol.String
+	vt.Note = note.String
+	t, err := time.Parse(timeLayout, markedAt)
+	if err != nil {
+		return nil, fmt.Errorf("queue: GetVendorTeachingByIdentityKey(%q): parse marked_at: %w", identityKey, err)
+	}
+	vt.MarkedAt = t.UTC()
+	return &vt, nil
+}
+
 // MarkUploaded moves a claimed item approved -> uploaded, recording the
 // returned uuid and amountOfPages (F-37). actor is always ActorDaemon.
 func (db *DB) MarkUploaded(ctx context.Context, itemID int64, uuid string, amountOfPages int) error {

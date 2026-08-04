@@ -1,0 +1,12 @@
+administration:
+  company_number: BE0123456789
+gmail:
+  query_window_days: 30
+  poll_interval: 5m
+  submitted_label: "VH&Co/submitted"
+rules:
+  - match: { from: "*@ovh.com", has: pdf }
+  - match: { from: "*@github.com", subject: "receipt" }
+  - deny:  { from: "*@newsletter.*" }
+  - deny:  { list_unsubscribe: true, has_no: pdf }
+default: queue_if(pdf_attachment || image_attachment || invoice_keywords)

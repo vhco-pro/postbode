@@ -1,0 +1,59 @@
+{{define "index.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Postbode review queue</title>
+<style>
+  body { font-family: sans-serif; margin: 2rem; }
+  li.item { border: 1px solid #ccc; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; list-style: none; }
+  .badge { display: inline-block; background: #eee; border-radius: 4px; padding: 0.15rem 0.5rem; margin: 0.15rem 0.25rem 0.15rem 0; font-size: 0.85rem; }
+  form.inline { display: inline; margin-right: 0.5rem; }
+</style>
+</head>
+<body>
+<h1>Postbode review queue ({{len .Items}})</h1>
+
+{{if .Items}}
+<form class="inline" method="post" action="/approve-all">
+  <input type="hidden" name="t" value="{{.Token}}">
+  <button type="submit">Approve all &amp; upload</button>
+</form>
+{{else}}
+<p>Nothing waiting for review.</p>
+{{end}}
+
+<ul>
+{{$token := .Token}}
+{{range .Items}}
+  <li class="item">
+    <div><strong>{{.Item.ProposedFilename}}</strong> (orig: {{.Item.OrigFilename}})</div>
+    <div>From: {{.Sender}} — Subject: {{.Subject}}</div>
+    <div>Status: {{.Item.Status}}</div>
+    <div>
+      {{range .Badges}}<span class="badge">{{.Label}}{{if .Detail}}: {{.Detail}}{{end}}</span>{{end}}
+    </div>
+    <div><a href="/preview/{{.Item.ID}}?t={{$token}}">Preview PDF</a></div>
+    <div>
+      {{if .Approvable}}
+      <form class="inline" method="post" action="/items/{{.Item.ID}}/approve">
+        <input type="hidden" name="t" value="{{$token}}">
+        <button type="submit">Approve</button>
+      </form>
+      {{end}}
+      <form class="inline" method="post" action="/items/{{.Item.ID}}/reject">
+        <input type="hidden" name="t" value="{{$token}}">
+        <button type="submit">Reject</button>
+      </form>
+      <form class="inline" method="post" action="/items/{{.Item.ID}}/already-in-portal">
+        <input type="hidden" name="t" value="{{$token}}">
+        <input type="text" name="note" placeholder="note (optional)">
+        <button type="submit">Already in portal</button>
+      </form>
+    </div>
+  </li>
+{{end}}
+</ul>
+</body>
+</html>
+{{end}}
