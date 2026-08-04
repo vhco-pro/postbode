@@ -7,12 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vhco-pro/postbode/internal/gmailwatch/fake"
+	"github.com/vhco-pro/postbode/internal/notify"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
-
-	"github.com/vhco-pro/postbode/internal/gmailwatch/fake"
-	"github.com/vhco-pro/postbode/internal/notify"
 )
 
 // Verifies: Plan: Postbode — Gmail to ClearFacts/QPS Invoice Agent, Phase 7, Criterion: "AC-20: With the fake OAuth server returning `invalid_grant`, the daemon stays alive, emits a notification containing a re-auth URL, leaves all queue rows untouched, and `postbode status` reports `re-auth needed` with token age. Polling resumes without restart once auth succeeds."

@@ -57,7 +57,7 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Do: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode != http.StatusUnauthorized {
 				t.Errorf("status = %d, want 401", resp.StatusCode)
 			}
@@ -72,7 +72,7 @@ func TestHealthzRequiresNoToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -92,7 +92,7 @@ func TestListViewShowsSenderSubjectFilenameStatusAndBadges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -138,7 +138,7 @@ func TestNeedsManualHandlingItemIsNotApprovableFromUI(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	html := string(body)
 	if !strings.Contains(html, "needs manual handling") {
 		t.Errorf("list page missing needs-manual-handling badge:\n%s", html)
@@ -155,7 +155,7 @@ func TestNeedsManualHandlingItemIsNotApprovableFromUI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostForm: %v", err)
 	}
-	defer postResp.Body.Close()
+	defer func() { _ = postResp.Body.Close() }()
 	if postResp.StatusCode != http.StatusConflict {
 		t.Errorf("status = %d, want 409", postResp.StatusCode)
 	}
@@ -176,7 +176,7 @@ func TestApproveTransitionsItemAndRedirects(t *testing.T) {
 	id := stageTestItem(t, db, ctx, "msg-1", "billing@ovh.com", "invoice", "", "")
 
 	resp := postForm(t, ts, "/items/"+itoa(id)+"/approve", url.Values{"t": {testToken}})
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK { // httptest client follows the 303 by default
 		t.Fatalf("status = %d, want 200 (redirect followed)", resp.StatusCode)
 	}
@@ -197,7 +197,7 @@ func TestRejectTransitionsItemAndRedirects(t *testing.T) {
 	id := stageTestItem(t, db, ctx, "msg-1", "billing@ovh.com", "invoice", "", "")
 
 	resp := postForm(t, ts, "/items/"+itoa(id)+"/reject", url.Values{"t": {testToken}})
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	item, err := db.GetItem(ctx, id)
 	if err != nil {
@@ -215,7 +215,7 @@ func TestAlreadyInPortalSetsStatusAndRecordsVendorTeachingWithZeroUploads(t *tes
 	id := stageTestItem(t, db, ctx, "msg-1", "Billing <billing@ovh.com>", "invoice", "", "identity-key-1")
 
 	resp := postForm(t, ts, "/items/"+itoa(id)+"/already-in-portal", url.Values{"t": {testToken}, "note": {"seen it in the portal already"}})
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (redirect followed)", resp.StatusCode)
 	}
@@ -256,7 +256,7 @@ func TestProbablyAlreadyHandledBadgeShowsReasonAndTeachingDate(t *testing.T) {
 	// First item: teach the vendor via the real endpoint.
 	firstID := stageTestItem(t, db, ctx, "msg-1", "billing@ovh.com", "first invoice", "", "shared-identity-key")
 	resp := postForm(t, ts, "/items/"+itoa(firstID)+"/already-in-portal", url.Values{"t": {testToken}})
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Second item: simulate what Phase 12's L4 matching engine will set at
 	// staging time — this phase only renders the flag, not derives it.
@@ -319,7 +319,7 @@ func TestApproveAllApprovesOnlyVisibleApprovableItems(t *testing.T) {
 	unsupportedID := res.ItemID
 
 	resp := postForm(t, ts, "/approve-all", url.Values{"t": {testToken}})
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	approved, err := db.GetItem(ctx, approvableID)
 	if err != nil {
@@ -355,7 +355,7 @@ func TestPreviewStreamsPDFBytesFromSpoolPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -397,7 +397,7 @@ func TestPreviewNeverTakesAPathFromTheRequest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Get(%s): %v", badID, err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusNotFound {
 			t.Errorf("Get(%s): status = %d, want 404", badID, resp.StatusCode)
 		}
@@ -409,7 +409,7 @@ func TestPreviewNeverTakesAPathFromTheRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if strings.Contains(string(body), "top secret") {
 		t.Fatal("preview leaked the secret file's contents")
@@ -460,7 +460,7 @@ func getBody(t *testing.T, ts *httptest.Server, path string) string {
 	if err != nil {
 		t.Fatalf("Get(%s): %v", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("ReadAll: %v", err)

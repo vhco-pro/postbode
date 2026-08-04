@@ -7,10 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/api/gmail/v1"
-
 	"github.com/vhco-pro/postbode/internal/gmailwatch/fake"
 	"github.com/vhco-pro/postbode/internal/queue"
+	"google.golang.org/api/gmail/v1"
 )
 
 // Verifies: Plan: Postbode — Gmail to ClearFacts/QPS Invoice Agent, Phase 7, Criterion: "AC-10: Replaying the same Gmail history response twice produces exactly one set of items; the second pass writes a `skip (L1)` log line and creates zero rows."

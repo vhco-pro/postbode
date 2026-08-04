@@ -76,19 +76,17 @@ func (db *DB) migrate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("queue: read schema_migrations: %w", err)
 	}
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var v int
 		if err := rows.Scan(&v); err != nil {
-			rows.Close()
 			return fmt.Errorf("queue: scan schema_migrations: %w", err)
 		}
 		applied[v] = true
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
 		return fmt.Errorf("queue: iterate schema_migrations: %w", err)
 	}
-	rows.Close()
 
 	for _, m := range migrations {
 		if applied[m.version] {

@@ -46,4 +46,27 @@ be added.
 
 In: PRD P0 (spike) + P1 (MVP). Out: image conversion (P2), link-following (P3), auto-upload /
 digest / doctor (P4), `SALE`/`VARIOUS` invoice types, the archive mutation, IMAP, and every Engie
-platform artifact (no k8s, no Argo CD, no Dockerfile, no CI config, no `vega.yaml`).
+platform artifact (no k8s, no Argo CD, no Dockerfile, no `vega.yaml`). Phase 16 adds the
+developer's house release pipeline (GitVersion + GoReleaser + golangci-lint, see below) — this is
+`michielvha`'s personal packaging convention, not an Engie CI system, and does not reopen the
+"no CI config" fence for Engie tooling.
+
+## Release engineering (Phase 16) — commit message contract
+
+Versioning is driven entirely by conventional-commit prefixes on `main`, evaluated by GitVersion
+(`gitversion.yml`) against every commit message (`commit-message-incrementing: Enabled`), not just
+merge commits. Get the prefix right or the release tag is wrong:
+
+| Prefix | Bump | Example |
+|---|---|---|
+| `feat:` / `feat(scope):` | **minor** | `feat(uploader): add retry backoff` |
+| `fix:`, `perf:`, `refactor:`, `revert:` | **patch** | `fix(dedup): correct L2 sha256 comparison` |
+| `BREAKING CHANGE` in the body, or `!:` after the type (`feat!:`, `fix!:`) | **major** | `feat!: drop vatnumber upload argument` |
+| `chore:`, `docs:`, `style:`, `test:`, `ci:` | **no bump** | `docs: update README install steps` |
+
+Tags are unprefixed (`0.1.4`, not `v0.1.4`). `.goreleaser.yml` builds `darwin/amd64` and
+`darwin/arm64` only (never `windows`/`linux` — see the deviation comment in that file), zips them,
+signs the checksum file with the developer's GPG key, and publishes a GitHub release. No container
+image is built or pushed. Run `make lint` (golangci-lint, `.golangci.yml`) as part of the local
+gate before pushing; CI (`.github/workflows/build-and-release.yaml`) runs `go vet`, `make test`,
+`make test-nonet` and golangci-lint before tagging and releasing.

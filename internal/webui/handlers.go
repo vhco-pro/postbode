@@ -69,7 +69,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	w.Header().Set("Content-Type", "application/pdf")
 	_, _ = io.Copy(w, f)

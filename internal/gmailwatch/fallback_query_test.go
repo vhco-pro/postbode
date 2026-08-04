@@ -4,11 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"google.golang.org/api/gmail/v1"
-
 	"github.com/vhco-pro/postbode/internal/gmailwatch"
 	"github.com/vhco-pro/postbode/internal/gmailwatch/fake"
 	"github.com/vhco-pro/postbode/internal/queue"
+	"google.golang.org/api/gmail/v1"
 )
 
 // Verifies: Plan: Postbode — Gmail to ClearFacts/QPS Invoice Agent, Phase 7, Criterion: "Fallback on first run or any history gap / `404 historyId not found`: fall back to `users.messages.list` with query **`in:inbox newer_than:{query_window_days}d (has:attachment OR invoice OR factuur)`**. The `in:inbox` and `newer_than:` parts are **load-bearing** — without them a resync sweeps the entire archived mailbox, contradicting F-11. Do not drop them. (F-13)"

@@ -68,7 +68,7 @@ func TestSuppressedPeppolItemIsVisibleWithoutApproveButNeverDropped(t *testing.T
 
 	// Approve is genuinely refused server-side too, not just hidden in the UI.
 	resp := postForm(t, ts, "/items/"+itoa(id)+"/approve", url.Values{"t": {testToken}})
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusConflict {
 		t.Errorf("POST approve on suppressed_peppol item = %d, want 409 (F-41 lifecycle graph has no suppressed_peppol -> approved edge)", resp.StatusCode)
 	}
@@ -82,7 +82,7 @@ func TestOverridePeppolSuppressionUnlocksApprove(t *testing.T) {
 	id := stagePeppolSuppressedItem(t, db, ctx, "msg-1", "facturatie@acerta.be")
 
 	resp := postForm(t, ts, "/items/"+itoa(id)+"/override-peppol", url.Values{"t": {testToken}})
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("override-peppol status = %d, want 200 (redirect followed)", resp.StatusCode)
 	}
@@ -102,7 +102,7 @@ func TestOverridePeppolSuppressionUnlocksApprove(t *testing.T) {
 	}
 
 	approveResp := postForm(t, ts, "/items/"+itoa(id)+"/approve", url.Values{"t": {testToken}})
-	defer approveResp.Body.Close()
+	defer func() { _ = approveResp.Body.Close() }()
 	if approveResp.StatusCode != http.StatusOK {
 		t.Fatalf("Approve after override status = %d, want 200 (redirect followed)", approveResp.StatusCode)
 	}
@@ -130,7 +130,7 @@ func TestProbablyAlreadyHandledBadgeResolvesByVendorDomainNotIdentityKey(t *test
 
 	firstID := stageTestItem(t, db, ctx, "msg-1", "billing@ovh.com", "first invoice", "", "identity-key-A")
 	resp := postForm(t, ts, "/items/"+itoa(firstID)+"/already-in-portal", url.Values{"t": {testToken}, "note": {"arrived via Peppol"}})
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if _, err := db.RecordMessageIfNew(ctx, queue.Message{GmailMessageID: "msg-2", From: "billing@ovh.com", Subject: "second invoice"}); err != nil {
 		t.Fatalf("RecordMessageIfNew: %v", err)

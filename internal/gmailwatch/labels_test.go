@@ -7,10 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/vhco-pro/postbode/internal/gmailwatch"
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
-
-	"github.com/vhco-pro/postbode/internal/gmailwatch"
 )
 
 func newFakeGmailService(t *testing.T, handler http.HandlerFunc) *gmail.Service {

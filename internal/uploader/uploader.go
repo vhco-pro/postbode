@@ -164,7 +164,7 @@ func (u *Uploader) processItem(ctx context.Context, item *queue.Item) error {
 		// Terminal failed, same as any other non-retryable error.
 		return u.DB.MarkFailed(ctx, item.ID, fmt.Sprintf("open spool file: %v", err))
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	file, uploadErr := u.Client.UploadFile(ctx, clearfacts.UploadInput{
 		CompanyNumber:  u.CompanyNumber,

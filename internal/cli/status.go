@@ -120,25 +120,25 @@ func BuildStatusReport(ctx context.Context, db *queue.DB, now time.Time) (Status
 // FormatStatus renders r exactly as `postbode status` prints it (F-64).
 func FormatStatus(w io.Writer, r StatusReport) {
 	if r.Sync.LastPollAt != nil {
-		fmt.Fprintf(w, "last poll:        %s (%s ago)\n", formatTime(*r.Sync.LastPollAt), formatAge(r.Now.Sub(*r.Sync.LastPollAt)))
+		_, _ = fmt.Fprintf(w, "last poll:        %s (%s ago)\n", formatTime(*r.Sync.LastPollAt), formatAge(r.Now.Sub(*r.Sync.LastPollAt)))
 	} else {
-		fmt.Fprintln(w, "last poll:        never")
+		_, _ = fmt.Fprintln(w, "last poll:        never")
 	}
 
 	if r.Sync.TokenIssuedAt != nil {
-		fmt.Fprintf(w, "gmail token:      issued %s (%s ago)\n", formatTime(*r.Sync.TokenIssuedAt), formatAge(r.Now.Sub(*r.Sync.TokenIssuedAt)))
+		_, _ = fmt.Fprintf(w, "gmail token:      issued %s (%s ago)\n", formatTime(*r.Sync.TokenIssuedAt), formatAge(r.Now.Sub(*r.Sync.TokenIssuedAt)))
 	} else {
-		fmt.Fprintln(w, "gmail token:      never issued")
+		_, _ = fmt.Fprintln(w, "gmail token:      never issued")
 	}
 	if r.Sync.LastAuthError != "" {
-		fmt.Fprintf(w, "re-auth needed:   yes (%s)\n", r.Sync.LastAuthError)
+		_, _ = fmt.Fprintf(w, "re-auth needed:   yes (%s)\n", r.Sync.LastAuthError)
 	} else {
-		fmt.Fprintln(w, "re-auth needed:   no")
+		_, _ = fmt.Fprintln(w, "re-auth needed:   no")
 	}
 
-	fmt.Fprintln(w, "queue:")
+	_, _ = fmt.Fprintln(w, "queue:")
 	for _, st := range allStatuses {
-		fmt.Fprintf(w, "  %-19s %d\n", string(st), r.Count(st))
+		_, _ = fmt.Fprintf(w, "  %-19s %d\n", string(st), r.Count(st))
 	}
 
 	if r.LastUploaded != nil {
@@ -147,19 +147,19 @@ func FormatStatus(w io.Writer, r StatusReport) {
 		if it.VerifiedAt != nil {
 			verified = formatTime(*it.VerifiedAt)
 		}
-		fmt.Fprintf(w, "last upload:      uuid=%s uploaded %s verified=%s (item #%d)\n",
+		_, _ = fmt.Fprintf(w, "last upload:      uuid=%s uploaded %s verified=%s (item #%d)\n",
 			it.UUID, formatTime(*it.UploadedAt), verified, it.ID)
 	} else {
-		fmt.Fprintln(w, "last upload:      none yet")
+		_, _ = fmt.Fprintln(w, "last upload:      none yet")
 	}
 
-	fmt.Fprintf(w, "stuck > 48h:      %d item(s)\n", len(r.Stuck))
+	_, _ = fmt.Fprintf(w, "stuck > 48h:      %d item(s)\n", len(r.Stuck))
 	for _, it := range r.Stuck {
 		name := it.ProposedFilename
 		if name == "" {
 			name = it.OrigFilename
 		}
-		fmt.Fprintf(w, "  [%d] %s since %s (%s ago) — %s\n",
+		_, _ = fmt.Fprintf(w, "  [%d] %s since %s (%s ago) — %s\n",
 			it.ID, it.Status, formatTime(it.StagedAt), formatAge(r.Now.Sub(it.StagedAt)), name)
 	}
 }

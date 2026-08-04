@@ -198,7 +198,7 @@ func (db *DB) ItemsBySHA256(ctx context.Context, sha256 string) ([]*Item, error)
 	if err != nil {
 		return nil, fmt.Errorf("queue: ItemsBySHA256: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var items []*Item
 	for rows.Next() {
@@ -223,7 +223,7 @@ func (db *DB) ListByStatus(ctx context.Context, status Status) ([]*Item, error) 
 	if err != nil {
 		return nil, fmt.Errorf("queue: ListByStatus(%s): %w", status, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var items []*Item
 	for rows.Next() {
@@ -251,7 +251,7 @@ func (db *DB) ListReviewable(ctx context.Context) ([]*Item, error) {
 	if err != nil {
 		return nil, fmt.Errorf("queue: ListReviewable: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var items []*Item
 	for rows.Next() {
@@ -281,7 +281,7 @@ func (db *DB) ListUploadedOlderThan(ctx context.Context, cutoff time.Time) ([]*I
 	if err != nil {
 		return nil, fmt.Errorf("queue: ListUploadedOlderThan: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var items []*Item
 	for rows.Next() {
@@ -304,7 +304,7 @@ func (db *DB) ItemsByMessageID(ctx context.Context, gmailMessageID string) ([]*I
 	if err != nil {
 		return nil, fmt.Errorf("queue: ItemsByMessageID: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var items []*Item
 	for rows.Next() {
@@ -330,7 +330,7 @@ func (db *DB) Transitions(ctx context.Context, itemID int64) ([]Transition, erro
 	if err != nil {
 		return nil, fmt.Errorf("queue: Transitions(%d): %w", itemID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []Transition
 	for rows.Next() {

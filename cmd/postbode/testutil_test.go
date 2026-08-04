@@ -110,7 +110,7 @@ func backdateStagedAt(t *testing.T, home string, itemID int64, at time.Time) {
 	if err != nil {
 		t.Fatalf("backdateStagedAt: open: %v", err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	if _, err := raw.Exec(`UPDATE item SET staged_at = ? WHERE id = ?`, at.UTC().Format(time.RFC3339Nano), itemID); err != nil {
 		t.Fatalf("backdateStagedAt: update: %v", err)
 	}

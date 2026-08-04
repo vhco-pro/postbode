@@ -73,7 +73,7 @@ func setDuplicateFlags(t *testing.T, dbPath string, itemID, linkedItemID int64) 
 	if err != nil {
 		t.Fatalf("sql.Open(%s): %v", dbPath, err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	if _, err := raw.Exec(`UPDATE item SET possible_duplicate = 1, linked_item_id = ? WHERE id = ?`, linkedItemID, itemID); err != nil {
 		t.Fatalf("set possible_duplicate on item %d: %v", itemID, err)
 	}
@@ -87,7 +87,7 @@ func setProbablyAlreadyHandled(t *testing.T, dbPath string, itemID int64) {
 	if err != nil {
 		t.Fatalf("sql.Open(%s): %v", dbPath, err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	if _, err := raw.Exec(`UPDATE item SET probably_already_handled = 1 WHERE id = ?`, itemID); err != nil {
 		t.Fatalf("set probably_already_handled on item %d: %v", itemID, err)
 	}

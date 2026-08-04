@@ -115,11 +115,11 @@ func verdictFor(ctx context.Context, db *queue.DB, it *queue.Item) (string, erro
 // verdict means.
 func FormatFind(w io.Writer, term string, matches []FindMatch) {
 	if len(matches) == 0 {
-		fmt.Fprintf(w, "unknown — no local record matches %q\n", term)
+		_, _ = fmt.Fprintf(w, "unknown — no local record matches %q\n", term)
 		return
 	}
 
-	fmt.Fprintf(w, "%d match(es) for %q:\n\n", len(matches), term)
+	_, _ = fmt.Fprintf(w, "%d match(es) for %q:\n\n", len(matches), term)
 	for _, m := range matches {
 		vendor := "(unknown sender)"
 		subject := ""
@@ -133,7 +133,7 @@ func FormatFind(w io.Writer, term string, matches []FindMatch) {
 		if name == "" {
 			name = m.Item.OrigFilename
 		}
-		fmt.Fprintf(w, "[%d] %s — %q — %s\n", m.Item.ID, vendor, subject, name)
-		fmt.Fprintf(w, "    -> %s\n\n", m.Verdict)
+		_, _ = fmt.Fprintf(w, "[%d] %s — %q — %s\n", m.Item.ID, vendor, subject, name)
+		_, _ = fmt.Fprintf(w, "    -> %s\n\n", m.Verdict)
 	}
 }

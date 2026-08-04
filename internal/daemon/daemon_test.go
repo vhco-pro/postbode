@@ -12,9 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/api/gmail/v1"
-	"google.golang.org/api/option"
-
 	"github.com/vhco-pro/postbode/internal/clearfacts"
 	cffake "github.com/vhco-pro/postbode/internal/clearfacts/fake"
 	"github.com/vhco-pro/postbode/internal/config"
@@ -26,6 +23,8 @@ import (
 	"github.com/vhco-pro/postbode/internal/queue"
 	"github.com/vhco-pro/postbode/internal/rules"
 	"github.com/vhco-pro/postbode/internal/uploader"
+	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/option"
 )
 
 const fixtureDir = "../../testdata"

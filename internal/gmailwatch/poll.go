@@ -33,8 +33,8 @@ func (w *Watcher) Poll(ctx context.Context) (PollResult, error) {
 		usedFallback bool
 	)
 
-	switch {
-	case st.HistoryID == "":
+	switch st.HistoryID {
+	case "":
 		// First ever poll (F-13).
 		msgIDs, err = w.fallbackList(ctx)
 		usedFallback = true

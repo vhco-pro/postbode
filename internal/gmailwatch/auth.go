@@ -115,7 +115,7 @@ func AuthenticateInteractive(ctx context.Context, cfg *oauth2.Config, tokenCache
 		}
 		// Refresh failed (e.g. invalid_grant / expired per F-16) — fall
 		// through to a fresh interactive consent flow rather than failing.
-		fmt.Fprintf(os.Stderr, "gmailwatch: cached token could not be refreshed (%v); re-authenticating\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "gmailwatch: cached token could not be refreshed (%v); re-authenticating\n", err)
 	}
 
 	code, redirectURL, err := receiveAuthCodeViaLoopback(cfg)
@@ -142,7 +142,7 @@ func receiveAuthCodeViaLoopback(cfg *oauth2.Config) (code, redirectURL string, e
 	if err != nil {
 		return "", "", fmt.Errorf("gmailwatch: listen for OAuth redirect: %w", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	redirectURL = fmt.Sprintf("http://127.0.0.1:%d", ln.Addr().(*net.TCPAddr).Port)
 
@@ -152,7 +152,7 @@ func receiveAuthCodeViaLoopback(cfg *oauth2.Config) (code, redirectURL string, e
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if e := r.URL.Query().Get("error"); e != "" {
-			fmt.Fprintf(w, "Postbode: authentication failed: %s. You can close this tab.", e)
+			_, _ = fmt.Fprintf(w, "Postbode: authentication failed: %s. You can close this tab.", e)
 			select {
 			case errCh <- fmt.Errorf("gmailwatch: oauth consent error: %s", e):
 			default:
@@ -160,7 +160,7 @@ func receiveAuthCodeViaLoopback(cfg *oauth2.Config) (code, redirectURL string, e
 			return
 		}
 		if c := r.URL.Query().Get("code"); c != "" {
-			fmt.Fprint(w, "Postbode: authenticated. You can close this tab.")
+			_, _ = fmt.Fprint(w, "Postbode: authenticated. You can close this tab.")
 			select {
 			case codeCh <- c:
 			default:
@@ -171,12 +171,12 @@ func receiveAuthCodeViaLoopback(cfg *oauth2.Config) (code, redirectURL string, e
 	})
 	srv := &http.Server{Handler: mux}
 	go func() { _ = srv.Serve(ln) }()
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	cfgCopy := *cfg
 	cfgCopy.RedirectURL = redirectURL
 	authURL := cfgCopy.AuthCodeURL("postbode-spike", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
-	fmt.Fprintf(os.Stderr, "gmailwatch: open this URL to authorize Gmail access:\n\n  %s\n\n", authURL)
+	_, _ = fmt.Fprintf(os.Stderr, "gmailwatch: open this URL to authorize Gmail access:\n\n  %s\n\n", authURL)
 
 	select {
 	case c := <-codeCh:

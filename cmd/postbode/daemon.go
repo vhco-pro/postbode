@@ -21,9 +21,6 @@ import (
 	"sync"
 	"syscall"
 
-	"golang.org/x/oauth2"
-	"google.golang.org/api/gmail/v1"
-
 	"github.com/vhco-pro/postbode/internal/clearfacts"
 	"github.com/vhco-pro/postbode/internal/cli"
 	"github.com/vhco-pro/postbode/internal/config"
@@ -36,6 +33,8 @@ import (
 	"github.com/vhco-pro/postbode/internal/rules"
 	"github.com/vhco-pro/postbode/internal/uploader"
 	"github.com/vhco-pro/postbode/internal/webui"
+	"golang.org/x/oauth2"
+	"google.golang.org/api/gmail/v1"
 )
 
 // defaultLogPath is F-65's local rotated daemon log location.
@@ -94,12 +93,12 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 
 	home, err := userHomeDir()
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
 		return 1
 	}
 
 	logWriter := &logrotate.Writer{Path: defaultLogPath(home)}
-	defer logWriter.Close()
+	defer func() { _ = logWriter.Close() }()
 	logger := log.New(io.MultiWriter(stderr, logWriter), "", log.LstdFlags|log.LUTC)
 	logf := func(format string, args ...any) { logger.Printf(format, args...) }
 
@@ -107,20 +106,20 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 	if err != nil {
 		// F-29: a malformed config file is a "refuse to start" condition,
 		// not a recoverable runtime one.
-		fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
 		return 1
 	}
 
 	db, err := cli.OpenDB(context.Background(), cli.DefaultDBPath(home))
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
 		return 1
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	spoolDir, err := extract.DefaultSpoolDir()
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
 		return 1
 	}
 
@@ -148,7 +147,7 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 		// actionable message; the operator authenticates once (currently
 		// via `make spike`) and restarts the daemon.
 		msg := "Postbode: not yet authenticated with Gmail. Run `make spike` once (or otherwise populate the Keychain/credentials.json), then restart the daemon."
-		fmt.Fprintln(stderr, "postbode: daemon: "+msg)
+		_, _ = fmt.Fprintln(stderr, "postbode: daemon: "+msg)
 		_ = notifier.Notify(ctx, msg)
 		return 0
 	}
@@ -184,16 +183,16 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 
 	token, err := webui.GenerateToken()
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
 		return 1
 	}
 	if err := webui.WriteTokenFile(webui.DefaultTokenPath(home), token); err != nil {
-		fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
 		return 1
 	}
 	uiSrv, err := webui.NewServer(db, token)
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
 		return 1
 	}
 

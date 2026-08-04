@@ -5,10 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/api/gmail/v1"
-
 	"github.com/vhco-pro/postbode/internal/gmailwatch/fake"
 	"github.com/vhco-pro/postbode/internal/queue"
+	"google.golang.org/api/gmail/v1"
 )
 
 // Verifies: Plan: Postbode — Gmail to ClearFacts/QPS Invoice Agent, Phase 7, Criterion: "F-19: No Gmail state written other than the `VH&Co/submitted` label."

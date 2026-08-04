@@ -25,7 +25,7 @@ func TestListenerBindsToLoopbackOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	tcpAddr, ok := ln.Addr().(*net.TCPAddr)
 	if !ok {
@@ -46,7 +46,7 @@ func TestListenerBindsToLoopbackOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", resp.StatusCode)
 	}
@@ -61,7 +61,7 @@ func TestListenerBindsToLoopbackOnly(t *testing.T) {
 	dialAddr := net.JoinHostPort(lanIP, itoa(int64(tcpAddr.Port)))
 	conn, err := net.DialTimeout("tcp", dialAddr, 500*time.Millisecond)
 	if err == nil {
-		conn.Close()
+		_ = conn.Close()
 		t.Fatalf("connection to LAN address %s unexpectedly succeeded; listener must be loopback-only", dialAddr)
 	}
 }

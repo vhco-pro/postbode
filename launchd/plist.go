@@ -50,7 +50,7 @@ func Parse(path string) (map[string]Value, error) {
 	if err != nil {
 		return nil, fmt.Errorf("launchd: open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return ParseReader(f)
 }
 

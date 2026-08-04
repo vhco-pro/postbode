@@ -29,7 +29,7 @@ func TestMigrationRunnerIsIdempotentAndPreservesData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Open (reapplying migrations): %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 
 	item, err := db2.GetItem(ctx, id)
 	if err != nil {
@@ -45,5 +45,5 @@ func TestMigrationRunnerIsIdempotentAndPreservesData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("third Open: %v", err)
 	}
-	defer db3.Close()
+	defer func() { _ = db3.Close() }()
 }

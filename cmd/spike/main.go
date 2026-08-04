@@ -82,7 +82,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if cfgErr != nil && configPath == "" {
-		fmt.Fprintf(stderr, "spike: cannot determine default config path: %v (pass -config explicitly)\n", cfgErr)
+		_, _ = fmt.Fprintf(stderr, "spike: cannot determine default config path: %v (pass -config explicitly)\n", cfgErr)
 		return 2
 	}
 
@@ -100,9 +100,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			results = append(results, legResult{Name: "(a) administrations", Status: legFailed, Detail: err.Error()})
 		} else {
-			fmt.Fprintln(stdout, "administrations:")
+			_, _ = fmt.Fprintln(stdout, "administrations:")
 			for _, a := range admins {
-				fmt.Fprintf(stdout, "  companyNumber=%s\n", a.CompanyNumber)
+				_, _ = fmt.Fprintf(stdout, "  companyNumber=%s\n", a.CompanyNumber)
 			}
 			cn, err := selectAdministration(admins, companyNumber)
 			if err != nil {
@@ -110,7 +110,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			} else if err := writeCompanyNumberConfig(configPath, cn); err != nil {
 				results = append(results, legResult{Name: "(a) administrations", Status: legFailed, Detail: fmt.Sprintf("write config: %v", err)})
 			} else {
-				fmt.Fprintf(stdout, "wrote administration.company_number=%s to %s\n", cn, configPath)
+				_, _ = fmt.Fprintf(stdout, "wrote administration.company_number=%s to %s\n", cn, configPath)
 				chosenCompanyNumber = cn
 				results = append(results, legResult{Name: "(a) administrations", Status: legPassed})
 			}
@@ -119,11 +119,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	// --- (b) upload TEST-postbode-ignore.pdf ------------------------
 	var uploadedFile *clearfacts.File
-	if skipUpload {
+	switch {
+	case skipUpload:
 		results = append(results, legResult{Name: "(b) upload " + testUploadFilename, Status: legSkipped, Detail: "skipped via -skip-upload"})
-	} else if chosenCompanyNumber == "" {
+	case chosenCompanyNumber == "":
 		results = append(results, legResult{Name: "(b) upload " + testUploadFilename, Status: legFailed, Detail: "no companyNumber available — leg (a) failed/was skipped without -company-number"})
-	} else {
+	default:
 		file, err := client.UploadFile(ctx, clearfacts.UploadInput{
 			CompanyNumber:  chosenCompanyNumber,
 			Filename:       testUploadFilename,
@@ -142,7 +143,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// anchor. This is the ONLY thing this program asserts about the
 			// portal; whether it actually appeared there is confirmed by a
 			// human (AC-5), never by this program.
-			fmt.Fprintf(stdout, "LIVE UPLOAD: uuid=%s filename=%s administration=%s amountOfPages=%d\n",
+			_, _ = fmt.Fprintf(stdout, "LIVE UPLOAD: uuid=%s filename=%s administration=%s amountOfPages=%d\n",
 				file.UUID, file.Name, chosenCompanyNumber, file.AmountOfPages)
 			results = append(results, legResult{Name: "(b) upload " + testUploadFilename, Status: legPassed})
 		}
@@ -163,22 +164,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 			results = append(results, legResult{Name: "(c) document(id:) verify", Status: legFailed, Detail: "document(id:) resolved with a nil document"})
 			results = append(results, legResult{Name: "(c2) provenance readback", Status: legSkipped, Detail: "leg (c) failed"})
 		default:
-			fmt.Fprintln(stdout, "verified: true")
+			_, _ = fmt.Fprintln(stdout, "verified: true")
 			results = append(results, legResult{Name: "(c) document(id:) verify", Status: legPassed})
 
 			if skipProvenance {
 				results = append(results, legResult{Name: "(c2) provenance readback", Status: legSkipped, Detail: "skipped via -skip-provenance"})
 			} else {
-				fmt.Fprintf(stdout, "File payload: uuid=%s name=%s amountOfPages=%d comment=%q tags=%v\n",
+				_, _ = fmt.Fprintf(stdout, "File payload: uuid=%s name=%s amountOfPages=%d comment=%q tags=%v\n",
 					doc.File.UUID, doc.File.Name, doc.File.AmountOfPages, doc.File.Comment, doc.File.Tags)
 
-				if uploadedFile == nil {
+				switch {
+				case uploadedFile == nil:
 					results = append(results, legResult{Name: "(c2) provenance readback", Status: legPassed, Detail: "no fresh upload in this run to diff against; payload printed above for manual inspection"})
-				} else if doc.File.Comment != uploadedFile.Comment {
+				case doc.File.Comment != uploadedFile.Comment:
 					results = append(results, legResult{Name: "(c2) provenance readback", Status: legFailed, Detail: fmt.Sprintf("comment changed on readback: uploaded=%q got=%q", uploadedFile.Comment, doc.File.Comment)})
-				} else if !slices.Equal(doc.File.Tags, uploadedFile.Tags) {
+				case !slices.Equal(doc.File.Tags, uploadedFile.Tags):
 					results = append(results, legResult{Name: "(c2) provenance readback", Status: legFailed, Detail: fmt.Sprintf("tags changed on readback: uploaded=%v got=%v", uploadedFile.Tags, doc.File.Tags)})
-				} else {
+				default:
 					results = append(results, legResult{Name: "(c2) provenance readback", Status: legPassed})
 				}
 			}
@@ -201,7 +203,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			})
 		}
 		probe := probeCompanyStatisticsTypes(ctx, call, statisticsTypeCandidates)
-		fmt.Fprint(stdout, formatStatisticsProbeResult(probe))
+		_, _ = fmt.Fprint(stdout, formatStatisticsProbeResult(probe))
 		// AC-5b: either outcome — a working type, or an explicit
 		// "no working type found" — is a pass. Only a program error would
 		// fail this leg, and probeCompanyStatisticsTypes has none.
@@ -216,11 +218,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		results = append(results, runGmailLeg(ctx, credentialsPath, tokenCachePath, stdout))
 	}
 
-	fmt.Fprintln(stdout)
-	fmt.Fprint(stdout, printSummary(results))
-	fmt.Fprintln(stdout)
+	_, _ = fmt.Fprintln(stdout)
+	_, _ = fmt.Fprint(stdout, printSummary(results))
+	_, _ = fmt.Fprintln(stdout)
 	if chosenCompanyNumber != "" && !skipUpload {
-		fmt.Fprintf(stdout, "Next: open the ClearFacts portal, confirm exactly one %s appeared in \"In verwerking\" for administration %s, and delete it (AC-5, D-4). This program never asserts that on its own.\n",
+		_, _ = fmt.Fprintf(stdout, "Next: open the ClearFacts portal, confirm exactly one %s appeared in \"In verwerking\" for administration %s, and delete it (AC-5, D-4). This program never asserts that on its own.\n",
 			testUploadFilename, chosenCompanyNumber)
 	}
 

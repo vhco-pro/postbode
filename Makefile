@@ -1,4 +1,4 @@
-.PHONY: build test vet spike e2e-dry test-nonet check-gitignore install-launchagent clean
+.PHONY: build test vet lint spike e2e-dry test-nonet check-gitignore install-launchagent clean
 
 GOFLAGS ?=
 BIN     := bin
@@ -8,13 +8,25 @@ build:
 	CGO_ENABLED=0 go build $(GOFLAGS) -o $(BIN)/postbode ./cmd/postbode
 
 ## test: the standing quality gate (NF-12). check-gitignore runs FIRST — a leaked
-## secret is not something we want to discover after a green test run.
+## secret is not something we want to discover after a green test run. lint runs
+## last since it is the strictest and slowest check.
 test: check-gitignore
 	go test ./...
+	@$(MAKE) lint
 
 ## vet: static analysis, part of the NF-12 gate
 vet:
 	go vet ./...
+
+## lint: house convention (Phase 16) — govet, errcheck, staticcheck, unused,
+## gocritic + gofumpt/goimports/gci/gofmt formatting, via .golangci.yml.
+## Fails clearly instead of confusingly if golangci-lint is not installed.
+lint:
+	@if ! command -v golangci-lint >/dev/null 2>&1; then \
+	  echo "lint: golangci-lint is not installed — see https://golangci-lint.run/welcome/install/"; \
+	  exit 1; \
+	fi
+	golangci-lint run
 
 ## check-gitignore: fail if any F-63 pattern is present but NOT ignored.
 ## Guards the one-way door: this repo has no remote to force-push over.

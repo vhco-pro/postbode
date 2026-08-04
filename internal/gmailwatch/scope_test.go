@@ -4,10 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"google.golang.org/api/gmail/v1"
-
 	"github.com/vhco-pro/postbode/internal/gmailwatch/fake"
 	"github.com/vhco-pro/postbode/internal/queue"
+	"google.golang.org/api/gmail/v1"
 )
 
 // Verifies: Plan: Postbode — Gmail to ClearFacts/QPS Invoice Agent, Phase 7, Criterion: "Watch scope is the whole INBOX (F-11 — the developer chose whole-inbox with rules for precision)."

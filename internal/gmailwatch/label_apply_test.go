@@ -4,10 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"google.golang.org/api/gmail/v1"
-
 	"github.com/vhco-pro/postbode/internal/gmailwatch"
 	"github.com/vhco-pro/postbode/internal/gmailwatch/fake"
+	"google.golang.org/api/gmail/v1"
 )
 
 // Verifies: Plan: Postbode — Gmail to ClearFacts/QPS Invoice Agent, Phase 7, Criterion: "AC-19/AC-20 are Phase 9's (label move) — implement `ApplyLabel`/`messages.modify` as a callable primitive here but do NOT wire the "all docs uploaded" trigger; that is the uploader's."

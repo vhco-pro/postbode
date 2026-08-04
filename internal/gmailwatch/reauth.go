@@ -5,9 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"golang.org/x/oauth2"
-
 	"github.com/vhco-pro/postbode/internal/queue"
+	"golang.org/x/oauth2"
 )
 
 // isReauthError reports whether err is the shape of a Gmail-side auth

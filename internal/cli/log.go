@@ -95,10 +95,10 @@ func BuildLog(ctx context.Context, db *queue.DB, since time.Duration, now time.T
 // naturally.
 func FormatLog(w io.Writer, entries []LogEntry) {
 	if len(entries) == 0 {
-		fmt.Fprintln(w, "(no log entries)")
+		_, _ = fmt.Fprintln(w, "(no log entries)")
 		return
 	}
 	for _, e := range entries {
-		fmt.Fprintf(w, "%s  %-10s %s\n", formatTime(e.At), e.Kind, e.Message)
+		_, _ = fmt.Fprintf(w, "%s  %-10s %s\n", formatTime(e.At), e.Kind, e.Message)
 	}
 }

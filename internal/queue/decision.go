@@ -45,7 +45,7 @@ func (db *DB) DecisionsByMessageID(ctx context.Context, gmailMessageID string) (
 	if err != nil {
 		return nil, fmt.Errorf("queue: DecisionsByMessageID(%s): %w", gmailMessageID, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []DecisionLogEntry
 	for rows.Next() {

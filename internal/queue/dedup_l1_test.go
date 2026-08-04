@@ -89,7 +89,7 @@ func TestL1SurvivesHistoryReplayRestartAndResync(t *testing.T) {
 		if err != nil {
 			t.Fatalf("open (process 2, simulating restart): %v", err)
 		}
-		defer db2.Close()
+		defer func() { _ = db2.Close() }()
 
 		seen, err := db2.MessageSeen(ctx, "msg-restart")
 		if err != nil {

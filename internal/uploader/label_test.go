@@ -5,14 +5,13 @@ import (
 	"net/http"
 	"testing"
 
-	"google.golang.org/api/gmail/v1"
-	"google.golang.org/api/option"
-
 	"github.com/vhco-pro/postbode/internal/clearfacts/fake"
 	"github.com/vhco-pro/postbode/internal/gmailwatch"
 	gmailfake "github.com/vhco-pro/postbode/internal/gmailwatch/fake"
 	"github.com/vhco-pro/postbode/internal/queue"
 	"github.com/vhco-pro/postbode/internal/uploader"
+	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/option"
 )
 
 const testLabelID = "Label_submitted"

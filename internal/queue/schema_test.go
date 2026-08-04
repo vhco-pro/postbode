@@ -5,9 +5,8 @@ import (
 	"database/sql"
 	"testing"
 
-	_ "modernc.org/sqlite"
-
 	"github.com/vhco-pro/postbode/internal/queue"
+	_ "modernc.org/sqlite"
 )
 
 // Verifies: Plan: Postbode — Gmail to ClearFacts/QPS Invoice Agent, Phase 4, Criterion: "Schema for `message`, `item`, `vendor_teaching`, `sync_state`, `decision_log` exactly as spec §5.2, on `modernc.org/sqlite` with WAL, no cgo (F-40, NF-01)"

@@ -1,0 +1,70 @@
+name: Binary & Container Release
+
+permissions:
+  id-token: write
+  contents: write
+  # DEVIATION from template-go-app (Phase 16 plan, deliberate): no
+  # `packages: write`. There is no container-release step below — see the
+  # note before step 4 — so registry write access is unused. Least privilege.
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1: Checkout code (required before using the action)
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # Fetch all the history for GitVersion
+          persist-credentials: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Real lint/test/scanning steps for this repo (the template leaves this
+      # a TODO since a template has no test suite of its own to run):
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (NF-12 gate)
+        run: make test
+
+      - name: go test (NF-09 no-network gate)
+        run: make test-nonet
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+      # 2: Call our custom `GitVersion action` to tag the repo
+      - name: Tag with GitVersion
+        id: gitversion
+        uses: michielvha/gitversion-tag-action@main
+        with:
+          configFilePath: gitversion.yml
+
+      # 3: Use the custom build-release action
+      - name: Build and Release Go Binary
+        uses: michielvha/goreleaser-action@main
+        with:
+          github-token: ${{ github.token }}
+          pgp-private-key: ${{ secrets.PGP_PRIVATE_KEY }}
+
+      # 4: Build and Push Docker image — INTENTIONALLY OMITTED (Phase 16
+      # plan deviation). Postbode is a macOS desktop daemon that shells out
+      # to `osascript`/`launchctl` and reads the macOS Keychain via
+      # `/usr/bin/security` — there is no meaningful container for that, and
+      # spec §9 (out of scope) explicitly excludes container images.

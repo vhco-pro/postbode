@@ -1,13 +1,12 @@
 package gmailwatch
 
 import (
-	"golang.org/x/oauth2"
-	"google.golang.org/api/gmail/v1"
-
 	"github.com/vhco-pro/postbode/internal/extract"
 	"github.com/vhco-pro/postbode/internal/notify"
 	"github.com/vhco-pro/postbode/internal/queue"
 	"github.com/vhco-pro/postbode/internal/rules"
+	"golang.org/x/oauth2"
+	"google.golang.org/api/gmail/v1"
 )
 
 // Config is the subset of Postbode's configuration (spec §6.5's gmail.*

@@ -5,9 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"golang.org/x/oauth2"
-
 	"github.com/vhco-pro/postbode/internal/gmailwatch"
+	"golang.org/x/oauth2"
 )
 
 const fixtureCredentialsJSON = `{

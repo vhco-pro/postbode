@@ -73,7 +73,7 @@ func ParseIdentity(vendorDomain, filename, subject string) Identity {
 		}
 	}
 
-	yearMonth := field{}
+	var yearMonth field
 	if !date.empty() {
 		yearMonth = field{value: date.value[:7], origin: date.origin}
 	} else {
@@ -203,8 +203,10 @@ func containsDigit(s string) bool {
 // \b would therefore fail to recognize a boundary at the very positions
 // that matter most. "not preceded/followed by a digit" is what these
 // patterns actually mean.
-const notDigitBoundary = `(?:^|[^0-9])`
-const notDigitBoundaryEnd = `(?:[^0-9]|$)`
+const (
+	notDigitBoundary    = `(?:^|[^0-9])`
+	notDigitBoundaryEnd = `(?:[^0-9]|$)`
+)
 
 // isoDateRE matches an unambiguous ISO date: YYYY-MM-DD or YYYY/MM/DD.
 var isoDateRE = regexp.MustCompile(notDigitBoundary + `(20\d{2})[-/](\d{2})[-/](\d{2})` + notDigitBoundaryEnd)
@@ -213,9 +215,11 @@ var isoDateRE = regexp.MustCompile(notDigitBoundary + `(20\d{2})[-/](\d{2})[-/](
 // convention the Belgian/Dutch corpus uses. Both separators must match
 // (Go's RE2 has no backreferences), so this pattern is applied per
 // separator rather than as one alternation.
-var euroDateSlashRE = regexp.MustCompile(notDigitBoundary + `(\d{1,2})/(\d{1,2})/(20\d{2})` + notDigitBoundaryEnd)
-var euroDateDashRE = regexp.MustCompile(notDigitBoundary + `(\d{1,2})-(\d{1,2})-(20\d{2})` + notDigitBoundaryEnd)
-var euroDateDotRE = regexp.MustCompile(notDigitBoundary + `(\d{1,2})\.(\d{1,2})\.(20\d{2})` + notDigitBoundaryEnd)
+var (
+	euroDateSlashRE = regexp.MustCompile(notDigitBoundary + `(\d{1,2})/(\d{1,2})/(20\d{2})` + notDigitBoundaryEnd)
+	euroDateDashRE  = regexp.MustCompile(notDigitBoundary + `(\d{1,2})-(\d{1,2})-(20\d{2})` + notDigitBoundaryEnd)
+	euroDateDotRE   = regexp.MustCompile(notDigitBoundary + `(\d{1,2})\.(\d{1,2})\.(20\d{2})` + notDigitBoundaryEnd)
+)
 
 func findDate(filename, subject string) field {
 	for _, in := range []struct {

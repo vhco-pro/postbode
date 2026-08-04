@@ -13,10 +13,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/vhco-pro/postbode/internal/cli"
 	"github.com/vhco-pro/postbode/internal/webui"
+)
+
+// version and commit are injected at build time via GoReleaser ldflags
+// (`-X main.version={{.Version}} -X main.commit={{.Commit}}`, Phase 16).
+// They stay at these defaults for `go build`/`go run` without ldflags, so
+// a dev build never lies about being a tagged release.
+var (
+	version = "dev"
+	commit  = "none"
 )
 
 const usage = `postbode — Gmail to ClearFacts purchase-invoice agent
@@ -29,6 +39,7 @@ commands:
   status                  print queue counts, last poll, last upload uuid, token age, stuck items
   status --find <term>    "is this already uploaded?" one-line verdict (vendor/filename/subject/etc.)
   log [--since <dur>]     print the local decision and upload log (e.g. --since 24h)
+  version                 print the postbode version, commit and go runtime version
 `
 
 // userHomeDir resolves the home directory used to locate the queue
@@ -45,7 +56,7 @@ var reviewLauncher cli.Launcher = cli.MacOpenLauncher{}
 // run is separated from main so tests can drive it without exiting the process.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprint(stderr, usage)
+		_, _ = fmt.Fprint(stderr, usage)
 		return 2
 	}
 
@@ -58,13 +69,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runStatus(args[1:], stdout, stderr)
 	case "log":
 		return runLog(args[1:], stdout, stderr)
+	case "version":
+		return runVersion(stdout)
 	case "-h", "--help", "help":
-		fmt.Fprint(stdout, usage)
+		_, _ = fmt.Fprint(stdout, usage)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "postbode: unknown command %q\n\n%s", args[0], usage)
+		_, _ = fmt.Fprintf(stderr, "postbode: unknown command %q\n\n%s", args[0], usage)
 		return 2
 	}
+}
+
+// runVersion implements `postbode version` (Phase 16): prints the version
+// and commit injected by GoReleaser at build time, plus the Go runtime
+// version the binary was compiled with.
+func runVersion(stdout io.Writer) int {
+	_, _ = fmt.Fprintf(stdout, "postbode %s (commit %s, %s)\n", version, commit, runtime.Version())
+	return 0
 }
 
 // runStatus implements `postbode status` and `postbode status --find
@@ -83,22 +104,22 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 
 	home, err := userHomeDir()
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: status: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: status: %v\n", err)
 		return 1
 	}
 
 	ctx := context.Background()
 	db, err := cli.OpenDB(ctx, cli.DefaultDBPath(home))
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: status: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: status: %v\n", err)
 		return 1
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if *find != "" {
 		matches, err := cli.Find(ctx, db, *find)
 		if err != nil {
-			fmt.Fprintf(stderr, "postbode: status --find: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "postbode: status --find: %v\n", err)
 			return 1
 		}
 		cli.FormatFind(stdout, *find, matches)
@@ -107,7 +128,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 
 	report, err := cli.BuildStatusReport(ctx, db, time.Now().UTC())
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: status: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: status: %v\n", err)
 		return 1
 	}
 	cli.FormatStatus(stdout, report)
@@ -131,21 +152,21 @@ func runLog(args []string, stdout, stderr io.Writer) int {
 
 	home, err := userHomeDir()
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: log: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: log: %v\n", err)
 		return 1
 	}
 
 	ctx := context.Background()
 	db, err := cli.OpenDB(ctx, cli.DefaultDBPath(home))
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: log: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: log: %v\n", err)
 		return 1
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	entries, err := cli.BuildLog(ctx, db, *since, time.Now().UTC())
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: log: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: log: %v\n", err)
 		return 1
 	}
 	cli.FormatLog(stdout, entries)
@@ -166,12 +187,12 @@ func runReview(args []string, _, stderr io.Writer) int {
 
 	home, err := userHomeDir()
 	if err != nil {
-		fmt.Fprintf(stderr, "postbode: review: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "postbode: review: %v\n", err)
 		return 1
 	}
 
 	if err := cli.Review(webui.DefaultTokenPath(home), webui.DefaultAddr, reviewLauncher); err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
+		_, _ = fmt.Fprintf(stderr, "%v\n", err)
 		return 1
 	}
 	return 0

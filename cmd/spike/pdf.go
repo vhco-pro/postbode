@@ -31,10 +31,10 @@ func generateTestPDF() []byte {
 	buf.WriteString("xref\n0 4\n")
 	buf.WriteString("0000000000 65535 f \n")
 	for i := 1; i <= 3; i++ {
-		fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
+		_, _ = fmt.Fprintf(&buf, "%010d 00000 n \n", offsets[i])
 	}
 	buf.WriteString("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n")
-	fmt.Fprintf(&buf, "%d\n", xrefOffset)
+	_, _ = fmt.Fprintf(&buf, "%d\n", xrefOffset)
 	buf.WriteString("%%EOF")
 
 	return buf.Bytes()

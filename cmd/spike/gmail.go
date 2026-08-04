@@ -38,22 +38,22 @@ func runGmailLeg(ctx context.Context, credentialsPath, tokenCachePath string, ou
 	if err != nil {
 		return legResult{Name: name, Status: legFailed, Detail: fmt.Sprintf("list messages: %v", err)}
 	}
-	fmt.Fprintln(out, "5 newest Gmail message ids:")
+	_, _ = fmt.Fprintln(out, "5 newest Gmail message ids:")
 	for _, m := range msgResp.Messages {
-		fmt.Fprintf(out, "  %s\n", m.Id)
+		_, _ = fmt.Fprintf(out, "  %s\n", m.Id)
 	}
 
 	label, err := gmailwatch.ResolveLabel(ctx, svc, "me", gmailwatch.SubmittedLabelName)
 	if err != nil {
 		if errors.Is(err, gmailwatch.ErrLabelNotFound) {
-			fmt.Fprintln(out, "label not found, refusing to create")
+			_, _ = fmt.Fprintln(out, "label not found, refusing to create")
 			return legResult{Name: name, Status: legFailed, Detail: fmt.Sprintf("label %q not found, refusing to create (F-15)", gmailwatch.SubmittedLabelName)}
 		}
 		// Per F-15 v1.3 / OQ-P7: an auth or network failure resolving the
 		// label is NOT "absent" and must not print the refusal message.
 		return legResult{Name: name, Status: legFailed, Detail: fmt.Sprintf("cannot resolve label (not treated as absent, F-15 v1.3): %v", err)}
 	}
-	fmt.Fprintf(out, "resolved label %q id=%s\n", gmailwatch.SubmittedLabelName, label.Id)
+	_, _ = fmt.Fprintf(out, "resolved label %q id=%s\n", gmailwatch.SubmittedLabelName, label.Id)
 
 	return legResult{Name: name, Status: legPassed}
 }

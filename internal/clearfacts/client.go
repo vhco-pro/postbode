@@ -189,7 +189,7 @@ func (c *Client) doJSON(ctx context.Context, query string, variables map[string]
 	if err != nil {
 		return nil, c.classifyTransportErr(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	return decodeResponse(resp)
 }
@@ -242,7 +242,7 @@ func (c *Client) doMultipart(ctx context.Context, query string, variables map[st
 	if err != nil {
 		return nil, c.classifyTransportErr(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	return decodeResponse(resp)
 }

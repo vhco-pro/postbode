@@ -7,10 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/oauth2"
-
 	"github.com/vhco-pro/postbode/internal/clearfacts"
 	"github.com/vhco-pro/postbode/internal/keychain"
+	"golang.org/x/oauth2"
 )
 
 // Verifies: Plan: Postbode — Gmail to ClearFacts/QPS Invoice Agent, Phase 13, Criterion: "F-62: Secrets (Gmail OAuth refresh token, ClearFacts PAT) stored via a Keychain-backed Store, with an env-var fallback for dev only."
@@ -56,7 +55,7 @@ func TestPATSourceFallsBackToStoreWhenEnvUnset(t *testing.T) {
 	ctx := context.Background()
 	store := keychain.NewFake()
 	store.Seed(keychain.AccountClearFactsPAT, "cf_from_store")
-	os.Unsetenv(keychain.PATEnvVar)
+	_ = os.Unsetenv(keychain.PATEnvVar)
 
 	src := keychain.PATSource{Store: store}
 	tok, err := src.Token(ctx)
@@ -71,7 +70,7 @@ func TestPATSourceFallsBackToStoreWhenEnvUnset(t *testing.T) {
 // Verifies: Plan: Postbode — Gmail to ClearFacts/QPS Invoice Agent, Phase 13, Criterion: "F-62: Secrets ... stored via a Keychain-backed Store."
 func TestPATSourceErrorsWhenNeitherEnvNorStoreHasIt(t *testing.T) {
 	ctx := context.Background()
-	os.Unsetenv(keychain.PATEnvVar)
+	_ = os.Unsetenv(keychain.PATEnvVar)
 	src := keychain.PATSource{Store: keychain.NewFake()}
 	if _, err := src.Token(ctx); err == nil {
 		t.Fatal("Token: got nil error, want an error when neither env nor store has the PAT")
@@ -117,7 +116,7 @@ func TestPATNeverAppearsUnredactedInAnErrorString(t *testing.T) {
 	store := keychain.NewFake()
 	const secret = "cf_super_secret_pat_value_should_never_leak"
 	store.Seed(keychain.AccountClearFactsPAT, secret)
-	os.Unsetenv(keychain.PATEnvVar)
+	_ = os.Unsetenv(keychain.PATEnvVar)
 
 	src := keychain.PATSource{Store: store}
 	tok, err := src.Token(ctx)

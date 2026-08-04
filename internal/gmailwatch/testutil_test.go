@@ -8,15 +8,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"google.golang.org/api/gmail/v1"
-	"google.golang.org/api/option"
-
 	"github.com/vhco-pro/postbode/internal/config"
 	"github.com/vhco-pro/postbode/internal/extract"
 	"github.com/vhco-pro/postbode/internal/gmailwatch"
 	"github.com/vhco-pro/postbode/internal/gmailwatch/fake"
 	"github.com/vhco-pro/postbode/internal/queue"
 	"github.com/vhco-pro/postbode/internal/rules"
+	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/option"
 )
 
 // fixtureDir is the repo-root testdata/ directory shared across phases,

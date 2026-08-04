@@ -14,9 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/api/gmail/v1"
-	"google.golang.org/api/option"
-
 	"github.com/vhco-pro/postbode/internal/clearfacts"
 	cffake "github.com/vhco-pro/postbode/internal/clearfacts/fake"
 	"github.com/vhco-pro/postbode/internal/config"
@@ -29,6 +26,8 @@ import (
 	"github.com/vhco-pro/postbode/internal/rules"
 	"github.com/vhco-pro/postbode/internal/uploader"
 	"github.com/vhco-pro/postbode/internal/webui"
+	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/option"
 )
 
 const (
@@ -249,21 +248,21 @@ func (p *pipeline) postForm(path string, form url.Values) *http.Response {
 func (p *pipeline) approve(itemID int64) *http.Response {
 	p.t.Helper()
 	resp := p.postForm(fmt.Sprintf("/items/%d/approve", itemID), nil)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp
 }
 
 func (p *pipeline) reject(itemID int64) *http.Response {
 	p.t.Helper()
 	resp := p.postForm(fmt.Sprintf("/items/%d/reject", itemID), nil)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp
 }
 
 func (p *pipeline) alreadyInPortal(itemID int64) *http.Response {
 	p.t.Helper()
 	resp := p.postForm(fmt.Sprintf("/items/%d/already-in-portal", itemID), nil)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	return resp
 }
 
@@ -277,7 +276,7 @@ func (p *pipeline) getList() string {
 	if err != nil {
 		p.t.Fatalf("GET /: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	buf := new(bytes.Buffer)
 	if _, err := buf.ReadFrom(resp.Body); err != nil {
 		p.t.Fatalf("read GET / body: %v", err)
@@ -320,13 +319,13 @@ func buildRawMessage(t *testing.T, from, subject string, pdfs []pdfAttachment) [
 	boundary := "E2EBOUNDARY" + randomID(t, "")
 
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "From: %s\r\n", from)
-	fmt.Fprintf(&buf, "To: review@vhco.pro\r\n")
-	fmt.Fprintf(&buf, "Subject: %s\r\n", subject)
-	fmt.Fprintf(&buf, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
-	fmt.Fprintf(&buf, "Message-ID: <%s@fixtures.postbode.e2e>\r\n", randomID(t, "msg"))
+	_, _ = fmt.Fprintf(&buf, "From: %s\r\n", from)
+	_, _ = fmt.Fprintf(&buf, "To: review@vhco.pro\r\n")
+	_, _ = fmt.Fprintf(&buf, "Subject: %s\r\n", subject)
+	_, _ = fmt.Fprintf(&buf, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
+	_, _ = fmt.Fprintf(&buf, "Message-ID: <%s@fixtures.postbode.e2e>\r\n", randomID(t, "msg"))
 	buf.WriteString("MIME-Version: 1.0\r\n")
-	fmt.Fprintf(&buf, "Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary)
+	_, _ = fmt.Fprintf(&buf, "Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary)
 
 	buf.WriteString("--" + boundary + "\r\n")
 	buf.WriteString("Content-Type: text/plain; charset=utf-8\r\n\r\n")
@@ -334,8 +333,8 @@ func buildRawMessage(t *testing.T, from, subject string, pdfs []pdfAttachment) [
 
 	for _, p := range pdfs {
 		buf.WriteString("--" + boundary + "\r\n")
-		fmt.Fprintf(&buf, "Content-Type: application/pdf; name=%q\r\n", p.filename)
-		fmt.Fprintf(&buf, "Content-Disposition: attachment; filename=%q\r\n", p.filename)
+		_, _ = fmt.Fprintf(&buf, "Content-Type: application/pdf; name=%q\r\n", p.filename)
+		_, _ = fmt.Fprintf(&buf, "Content-Disposition: attachment; filename=%q\r\n", p.filename)
 		buf.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
 		writeBase64Wrapped(&buf, p.content)
 	}
