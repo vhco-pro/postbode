@@ -80,7 +80,7 @@ const itemColumns = `
 	possible_duplicate, probably_already_handled, unsupported_type,
 	linked_item_id, dedup_layer, staged_at, approved_at, uploaded_at,
 	uuid, amount_of_pages, verified_at, failed_at, last_error, retry_count,
-	next_retry_at, claimed_at
+	next_retry_at, claimed_at, first_failed_at
 `
 
 func scanItem(rs rowScanner) (*Item, error) {
@@ -98,7 +98,7 @@ func scanItem(rs rowScanner) (*Item, error) {
 		verifiedAt, failedAt                                   sql.NullString
 		lastError                                              sql.NullString
 		retryCount                                             sql.NullInt64
-		nextRetryAt, claimedAt                                 sql.NullString
+		nextRetryAt, claimedAt, firstFailedAt                  sql.NullString
 		needsManualHandling, lowConfidence                     sql.NullInt64
 		possibleDuplicate, probablyAlreadyHandled, unsupported sql.NullInt64
 	)
@@ -110,7 +110,7 @@ func scanItem(rs rowScanner) (*Item, error) {
 		&possibleDuplicate, &probablyAlreadyHandled, &unsupported,
 		&linkedItemID, &dedupLayer, &stagedAt, &approvedAt, &uploadedAt,
 		&uuidVal, &amountOfPages, &verifiedAt, &failedAt, &lastError, &retryCount,
-		&nextRetryAt, &claimedAt,
+		&nextRetryAt, &claimedAt, &firstFailedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -160,6 +160,9 @@ func scanItem(rs rowScanner) (*Item, error) {
 		return nil, err
 	}
 	if it.ClaimedAt, err = parseTimePtr(claimedAt); err != nil {
+		return nil, err
+	}
+	if it.FirstFailedAt, err = parseTimePtr(firstFailedAt); err != nil {
 		return nil, err
 	}
 

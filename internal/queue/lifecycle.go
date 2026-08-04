@@ -206,3 +206,73 @@ func (db *DB) MarkFailed(ctx context.Context, itemID int64, lastError string) er
 		return err
 	})
 }
+
+// RecordUploadRetry records one retryable upload failure (F-51) on an item
+// that stays in status approved — this is NOT a lifecycle transition (the
+// status column is untouched), so it does not go through transition() or
+// write an item_transition row. It:
+//
+//   - increments retry_count by one,
+//   - stores lastError,
+//   - schedules nextRetryAt (the caller computes this via
+//     clearfacts.Backoff),
+//   - stamps first_failed_at on the FIRST retryable failure only (COALESCE
+//     leaves it untouched on every subsequent call), anchoring the F-51 24h
+//     give-up window independently of retry_count and surviving a restart,
+//   - clears claimed_at, releasing the item so ClaimApprovedDue can pick it
+//     back up once nextRetryAt is reached (F-52 durable approval: the item
+//     never leaves approved, so no re-approval is ever required).
+//
+// The caller (the uploader) is responsible for checking whether the give-up
+// threshold (clearfacts.ShouldGiveUp) has now been crossed and, if so,
+// calling MarkFailed instead/afterward.
+//
+// now is the caller's notion of the current time (injected, rather than
+// this method calling time.Now() itself) so that a test-controlled clock
+// governs first_failed_at exactly like it governs nextRetryAt — otherwise a
+// test that jumps its own clock forward to exercise the 24h give-up window
+// would have first_failed_at silently anchored to the real wall clock
+// instead, breaking the very backoff test this parameter exists for.
+func (db *DB) RecordUploadRetry(ctx context.Context, itemID int64, lastError string, nextRetryAt, now time.Time) error {
+	res, err := db.sqlDB.ExecContext(ctx, `
+		UPDATE item
+		SET retry_count     = retry_count + 1,
+			last_error      = ?,
+			next_retry_at   = ?,
+			first_failed_at = COALESCE(first_failed_at, ?),
+			claimed_at      = NULL
+		WHERE id = ?
+	`, lastError, timeToDB(nextRetryAt), timeToDB(now), itemID)
+	if err != nil {
+		return fmt.Errorf("queue: RecordUploadRetry(%d): %w", itemID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("queue: RecordUploadRetry(%d): rows affected: %w", itemID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("queue: RecordUploadRetry(%d): item not found", itemID)
+	}
+	return nil
+}
+
+// MarkVerified records the F-37 proof-of-delivery verification timestamp on
+// an already-uploaded item. It is NOT a lifecycle transition — the item's
+// status is already the terminal uploaded and stays there whether or not
+// verification ever succeeds (an item with a uuid but no verified_at
+// displays as "uploaded (unverified)" and is deliberately never retried, per
+// ADR-003 — a retry here risks a real portal duplicate).
+func (db *DB) MarkVerified(ctx context.Context, itemID int64, verifiedAt time.Time) error {
+	res, err := db.sqlDB.ExecContext(ctx, `UPDATE item SET verified_at = ? WHERE id = ?`, timeToDB(verifiedAt), itemID)
+	if err != nil {
+		return fmt.Errorf("queue: MarkVerified(%d): %w", itemID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("queue: MarkVerified(%d): rows affected: %w", itemID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("queue: MarkVerified(%d): item not found", itemID)
+	}
+	return nil
+}

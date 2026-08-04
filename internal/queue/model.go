@@ -86,6 +86,12 @@ type Item struct {
 	RetryCount             int
 	NextRetryAt            *time.Time
 	ClaimedAt              *time.Time
+	// FirstFailedAt is a Phase 9 addition (F-51): the moment this item's
+	// upload first failed with a retryable error, set once and never
+	// overwritten. It anchors the 24h give-up window independently of
+	// retry_count, and survives a daemon restart. Nil until the first
+	// retryable failure.
+	FirstFailedAt *time.Time
 }
 
 // VendorTeaching mirrors the vendor_teaching entity (spec §5.2), owned by

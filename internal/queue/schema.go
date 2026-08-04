@@ -144,4 +144,16 @@ var migrations = []migration{
 			`ALTER TABLE sync_state ADD COLUMN last_auth_error TEXT`,
 		},
 	},
+	{
+		// Phase 9 addition: item.first_failed_at anchors the F-51 24h
+		// give-up window to the moment an approved item's upload FIRST
+		// failed with a retryable error, independent of retry_count or
+		// next_retry_at, and surviving a daemon restart (a fresh process
+		// re-reads this column rather than re-starting a 24h clock from
+		// zero). Additive only.
+		version: 3,
+		stmts: []string{
+			`ALTER TABLE item ADD COLUMN first_failed_at TEXT`,
+		},
+	},
 }

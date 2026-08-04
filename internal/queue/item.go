@@ -169,6 +169,36 @@ func (db *DB) ListByStatus(ctx context.Context, status Status) ([]*Item, error) 
 	return items, nil
 }
 
+// ListUploadedOlderThan returns every item in status=uploaded whose
+// uploaded_at is at or before cutoff, oldest first. Added for Phase 9's
+// spool pruning (F-24): the uploader (or the daemon tick that drives it)
+// uses this to fetch the candidate set for extract.PruneUploadedItems
+// without scanning every item in the database.
+func (db *DB) ListUploadedOlderThan(ctx context.Context, cutoff time.Time) ([]*Item, error) {
+	rows, err := db.sqlDB.QueryContext(ctx, `
+		SELECT `+itemColumns+` FROM item
+		WHERE status = ? AND uploaded_at IS NOT NULL AND uploaded_at <= ?
+		ORDER BY uploaded_at, id
+	`, string(StatusUploaded), timeToDB(cutoff.UTC()))
+	if err != nil {
+		return nil, fmt.Errorf("queue: ListUploadedOlderThan: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*Item
+	for rows.Next() {
+		item, err := scanItem(rows)
+		if err != nil {
+			return nil, fmt.Errorf("queue: ListUploadedOlderThan: scan: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("queue: ListUploadedOlderThan: %w", err)
+	}
+	return items, nil
+}
+
 // ItemsByMessageID returns every item staged for the given gmail_message_id,
 // ordered by id.
 func (db *DB) ItemsByMessageID(ctx context.Context, gmailMessageID string) ([]*Item, error) {

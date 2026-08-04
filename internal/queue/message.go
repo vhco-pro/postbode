@@ -84,6 +84,32 @@ func (db *DB) GetMessage(ctx context.Context, gmailMessageID string) (*Message, 
 	return &m, nil
 }
 
+// MarkMessageSubmitted stamps message.all_docs_uploaded_at and
+// message.labeled_at with the same timestamp (F-14, AC-19). The uploader
+// (Phase 9) calls this exactly once, immediately after the
+// gmailwatch.ApplyLabel call that adds VH&Co/submitted and removes INBOX
+// succeeds — so both columns are set together only once the label move
+// actually happened, never speculatively. Idempotent: calling it again
+// simply overwrites both timestamps, but the uploader's own
+// labeled_at != nil check (via GetMessage) is what prevents a second
+// ApplyLabel call from ever being issued in the first place.
+func (db *DB) MarkMessageSubmitted(ctx context.Context, gmailMessageID string, at time.Time) error {
+	res, err := db.sqlDB.ExecContext(ctx, `
+		UPDATE message SET all_docs_uploaded_at = ?, labeled_at = ? WHERE gmail_message_id = ?
+	`, timeToDB(at), timeToDB(at), gmailMessageID)
+	if err != nil {
+		return fmt.Errorf("queue: MarkMessageSubmitted(%s): %w", gmailMessageID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("queue: MarkMessageSubmitted(%s): rows affected: %w", gmailMessageID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("queue: MarkMessageSubmitted(%s): message not found", gmailMessageID)
+	}
+	return nil
+}
+
 // MessageSeen reports whether gmailMessageID has already been recorded by
 // RecordMessageIfNew (F-30, L1).
 func (db *DB) MessageSeen(ctx context.Context, gmailMessageID string) (bool, error) {
