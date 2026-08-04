@@ -17,6 +17,12 @@ const DefaultAddr = "127.0.0.1:7391"
 //go:embed templates/*.html
 var templateFS embed.FS
 
+// logoPNG is the VH mark, embedded so the binary stays self-contained (no
+// asset directory to install alongside it, F-60's "single static binary").
+//
+//go:embed static/logo.png
+var logoPNG []byte
+
 var pageTemplate = template.Must(template.New("").ParseFS(templateFS, "templates/*.html"))
 
 // Server is the embedded Postbode review UI (F-42, F-43): a plain
@@ -47,6 +53,11 @@ func NewServer(db *queue.DB, token string) (*Server, error) {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	// The logo is deliberately NOT token-gated. It carries no data, and
+	// gating it would leave the 401 page — the one a user with a stale
+	// session actually sees — showing a broken image.
+	mux.HandleFunc("GET /logo.png", s.handleLogo)
+	mux.HandleFunc("GET /favicon.ico", s.handleLogo)
 	mux.HandleFunc("GET /{$}", s.requireToken(s.handleList))
 	mux.HandleFunc("GET /preview/{id}", s.requireToken(s.handlePreview))
 	mux.HandleFunc("POST /items/{id}/approve", s.requireToken(s.handleApprove))
@@ -142,9 +153,17 @@ func (s *Server) writeUnauthorized(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = w.Write([]byte(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Postbode — session expired</title>
-<style>body{font:16px/1.6 -apple-system,system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1.5rem;color:#222}
-code{background:#f4f4f5;padding:.15rem .4rem;border-radius:4px;font-size:.95em}
-p{margin:.9rem 0}</style></head><body>
+<link rel="icon" type="image/png" href="/logo.png">
+<style>
+body{font:16px/1.6 -apple-system,system-ui,sans-serif;max-width:34rem;margin:0 auto;padding:5rem 1.5rem;
+  color:#eaf0ff;min-height:100vh;
+  background:linear-gradient(160deg,#020814 0%,#061229 48%,#0b1f45 100%);background-attachment:fixed}
+img.mark{width:2.6rem;height:2.6rem;display:block;margin-bottom:1rem}
+h1{font-size:1.5rem;letter-spacing:-.02em;margin:0 0 .5rem}
+code{background:rgba(0,0,0,.3);padding:.15rem .45rem;border-radius:5px;font-size:.95em}
+p{margin:.9rem 0;color:#9fb2d8}
+</style></head><body>
+<img class="mark" src="/logo.png" alt="">
 <h1>Session expired</h1>
 <p>Postbode's review UI uses a session token that changes every time the daemon
 restarts, so bookmarks and old tabs stop working.</p>
@@ -153,6 +172,16 @@ restarts, so bookmarks and old tabs stop working.</p>
 <p>That reads the current token and opens this page again. After that, plain
 <code>http://127.0.0.1:7391/</code> keeps working in this browser until the next restart.</p>
 </body></html>`))
+}
+
+// handleLogo serves the embedded VH mark for both /logo.png and
+// /favicon.ico. Browsers accept a PNG for either, so one asset covers both
+// rather than shipping a separate .ico.
+func (s *Server) handleLogo(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(logoPNG)
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
