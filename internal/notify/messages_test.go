@@ -2,6 +2,7 @@ package notify_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/vhco-pro/postbode/internal/notify"
@@ -14,9 +15,9 @@ func TestNotifyStagedMessageWording(t *testing.T) {
 		count int
 		want  string
 	}{
-		{"one item", 1, "Postbode: 1 invoices waiting for review."},
-		{"several items", 7, "Postbode: 7 invoices waiting for review."},
-		{"zero items", 0, "Postbode: 0 invoices waiting for review."},
+		{"one item uses the singular", 1, "Postbode: 1 invoice waiting for review. Run: postbode review"},
+		{"several items", 7, "Postbode: 7 invoices waiting for review. Run: postbode review"},
+		{"zero items", 0, "Postbode: 0 invoices waiting for review. Run: postbode review"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -43,8 +44,8 @@ func TestNotifyStagedAndUploadCompleteEachInvokeExactlyOnce(t *testing.T) {
 
 	got := fake.All()
 	want := []string{
-		"Postbode: 3 invoices waiting for review.",
-		"Postbode: upload batch complete, 2 invoice(s) uploaded.",
+		"Postbode: 3 invoices waiting for review. Run: postbode review",
+		"Postbode: 2 invoices uploaded to the portal.",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("Fake recorded %d messages, want %d: %v", len(got), len(want), got)
@@ -74,5 +75,16 @@ func TestFakeNeverShellsOut(t *testing.T) {
 	}
 	if got := fake.All(); len(got) != 1 || got[0] != "test message" {
 		t.Errorf("All() = %v, want [\"test message\"]", got)
+	}
+}
+
+// A notification that says work is waiting but not how to reach it is a
+// dead end: osascript notifications are not clickable and cannot launch
+// anything. Guard the call to action explicitly.
+func TestStagedMessageTellsTheUserHowToOpenTheQueue(t *testing.T) {
+	msg := notify.StagedMessage(4)
+	if !strings.Contains(msg, "postbode review") {
+		t.Errorf("staged notification %q does not say how to review; the first real "+
+			"user saw the notification and had to ask where the invoices were", msg)
 	}
 }

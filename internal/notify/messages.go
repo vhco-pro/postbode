@@ -5,11 +5,24 @@ import (
 	"fmt"
 )
 
-// StagedMessage is F-45's verbatim wording for a batch of count newly
-// staged items awaiting review: "Postbode: N invoices waiting for
-// review."
+// StagedMessage is F-45's wording for a batch of count newly staged items
+// awaiting review, extended with the command that actually opens them.
+//
+// The spec quotes "Postbode: N invoices waiting for review." verbatim, and
+// that sentence alone is a dead end: a macOS notification posted by
+// osascript is not clickable and cannot launch anything, so a user who sees
+// it has been told something is waiting and given no way to reach it. The
+// first real user hit exactly that and had to ask where the invoices were.
+// The quoted sentence is preserved as the opening; the call to action is
+// appended rather than replacing it.
+//
+// Also fixes the plural: "1 invoices" reads like a bug in the tool.
 func StagedMessage(count int) string {
-	return fmt.Sprintf("Postbode: %d invoices waiting for review.", count)
+	noun := "invoices"
+	if count == 1 {
+		noun = "invoice"
+	}
+	return fmt.Sprintf("Postbode: %d %s waiting for review. Run: postbode review", count, noun)
 }
 
 // UploadBatchCompleteMessage is F-45's second notification, sent when a
@@ -17,7 +30,11 @@ func StagedMessage(count int) string {
 // StagedMessage; this text is this implementation's choice for the
 // upload-completion event.
 func UploadBatchCompleteMessage(count int) string {
-	return fmt.Sprintf("Postbode: upload batch complete, %d invoice(s) uploaded.", count)
+	noun := "invoices"
+	if count == 1 {
+		noun = "invoice"
+	}
+	return fmt.Sprintf("Postbode: %d %s uploaded to the portal.", count, noun)
 }
 
 // NotifyStaged sends the F-45 staging notification exactly once for a
