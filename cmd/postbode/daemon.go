@@ -50,14 +50,27 @@ func defaultConfigPath(home string) string {
 	return filepath.Join(home, ".config", "postbode", "config.yaml")
 }
 
-// defaultCredentialsPath is the Google OAuth desktop-app credentials file
-// (D-2), overridable via POSTBODE_CREDENTIALS_PATH for a non-default
-// layout. Defaults to the same relative "credentials.json" cmd/spike uses,
-// so the launchd plist's WorkingDirectory (set to the repo checkout) keeps
-// this resolving to the same file without any extra configuration.
-func defaultCredentialsPath() string {
+// defaultCredentialsPath resolves the Google OAuth desktop-app credentials
+// file (D-2). Resolution order, first hit wins:
+//
+//  1. POSTBODE_CREDENTIALS_PATH
+//  2. ~/Library/Application Support/Postbode/credentials.json
+//  3. ./credentials.json
+//
+// (2) exists because of how this actually gets installed. A relative
+// "credentials.json" only resolves when the daemon is started from the
+// repo checkout; a Homebrew-managed launchd service has no meaningful
+// working directory, so it would never find the file and would sit at
+// "not yet authenticated" forever — with no error, since a missing
+// credentials file is a legitimate pre-bootstrap state. (3) is kept so
+// running from the checkout during development still works unchanged.
+func defaultCredentialsPath(home string) string {
 	if v := os.Getenv("POSTBODE_CREDENTIALS_PATH"); v != "" {
 		return v
+	}
+	installed := filepath.Join(home, "Library", "Application Support", "Postbode", "credentials.json")
+	if _, err := os.Stat(installed); err == nil {
+		return installed
 	}
 	return "credentials.json"
 }
@@ -243,7 +256,7 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 // doc). oauthCfg is returned alongside svc so the caller can wire it into
 // Watcher.OAuthConfig for F-16's one-click re-auth notification URL.
 func buildGmailService(ctx context.Context, home string, logf func(string, ...any)) (*gmail.Service, *oauth2.Config) {
-	credPath := defaultCredentialsPath()
+	credPath := defaultCredentialsPath(home)
 	if !gmailwatch.CredentialsFileExists(credPath) {
 		logf("daemon: %s not found — Gmail is not authenticated yet", credPath)
 		return nil, nil
