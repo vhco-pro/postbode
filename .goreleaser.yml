@@ -83,3 +83,12 @@ changelog:
 
 # To check deprecations:
 # https://goreleaser.com/deprecations/
+
+# Homebrew: deliberately NOT using goreleaser's `brews:` push.
+#
+# vhco-pro/homebrew-tap pulls rather than being pushed to — its sync
+# workflows watch a source repo's latest release and bump the formula with
+# the tap's OWN github.token ("no cross-repo app/PAT/deploy-key needed",
+# per sync-cask.yml). Pushing from here would reintroduce exactly the
+# cross-repo credential that pattern exists to avoid, so the formula and
+# its sync workflow live in the tap instead. See Formula/postbode.rb there.
