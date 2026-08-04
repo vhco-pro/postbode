@@ -137,7 +137,12 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 		return 1
 	}
 
-	notifier := notify.OSAScript{}
+	// Prefer terminal-notifier so clicking the notification opens the review
+	// queue; fall back to osascript, whose notifications open Script Editor
+	// instead (see notify.TerminalNotifier). The URL carries no token: the
+	// token is stable and the browser holds a cookie from any earlier
+	// `postbode review`, so the bare loopback URL is enough.
+	notifier := notify.Best("http://" + webui.DefaultAddr + "/")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
