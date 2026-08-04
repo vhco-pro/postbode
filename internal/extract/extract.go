@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/vhco-pro/postbode/internal/dedup"
 	"github.com/vhco-pro/postbode/internal/queue"
 )
 
@@ -100,6 +101,14 @@ type Extractor struct {
 	// created at all. See the Gate doc for why this must happen before
 	// StageItem rather than as a reject afterwards.
 	Gate Gate
+	// KnownPeppolGlobs is config's vendors.known_peppol (F-36) — the
+	// sender-address glob list a document must NOT be automatically
+	// uploaded from without an explicit UI override. Extractor only
+	// evaluates the match (internal/dedup.MatchesKnownPeppol) and passes
+	// the result to StageItem; it never reads config itself, so this
+	// package stays free of a dependency on internal/config. Nil/empty
+	// means no vendor is configured as known-Peppol.
+	KnownPeppolGlobs []string
 }
 
 // New builds an Extractor spooling into spoolDir. Production wires
@@ -193,6 +202,12 @@ func (e *Extractor) ExtractMessage(ctx context.Context, msg Message) (Result, er
 		return Result{Skipped: true, SkipReason: "L1 message-id already seen (concurrent)"}, nil
 	}
 
+	// L4/F-36 inputs computed once per message, not per candidate document
+	// — a message has exactly one sender, so vendor domain and the
+	// known-Peppol match are the same for every PDF it carries.
+	vendorDomain := dedup.VendorDomain(msg.From)
+	suppressedPeppol := dedup.MatchesKnownPeppol(msg.From, e.KnownPeppolGlobs)
+
 	items := make([]ItemResult, 0, len(spooled))
 	var denied []Denied
 	for _, s := range spooled {
@@ -228,6 +243,12 @@ func (e *Extractor) ExtractMessage(ctx context.Context, msg Message) (Result, er
 			}
 		}
 
+		// L3 (F-32): identity is parsed per document, not per message —
+		// each PDF in a multi-attachment message has its own filename and
+		// (usually) its own invoice number/date/amount, even though they
+		// share one subject line.
+		identity := dedup.ParseIdentity(vendorDomain, s.filename, msg.Subject)
+
 		stageRes, serr := e.db.StageItem(ctx, queue.NewItem{
 			GmailMessageID:      msg.GmailMessageID,
 			SpoolPath:           s.path,
@@ -238,6 +259,11 @@ func (e *Extractor) ExtractMessage(ctx context.Context, msg Message) (Result, er
 			SHA256:              s.sha,
 			NeedsManualHandling: needsManual,
 			UnsupportedType:     unsupported,
+			IdentityKey:         identity.Key,
+			IdentityConfidence:  identity.Confidence,
+			IdentitySource:      identity.Source,
+			VendorDomain:        vendorDomain,
+			SuppressedPeppol:    suppressedPeppol,
 		})
 		if serr != nil {
 			return Result{Items: items, Denied: denied, Warnings: warnings}, fmt.Errorf("extract: ExtractMessage(%s): stage item %q: %w", msg.GmailMessageID, s.filename, serr)

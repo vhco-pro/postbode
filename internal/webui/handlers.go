@@ -19,13 +19,15 @@ type listPageData struct {
 	Items []itemView
 }
 
-// handleList renders GET / — the F-43 list view. It shows exactly the
-// items currently in status=staged: the ones that need a human decision.
+// handleList renders GET / — the F-43 list view. It shows every item
+// currently needing a human decision: status=staged (queue.ListReviewable
+// — F-43) plus status=suppressed_peppol (F-36, AC-14), which needs an
+// explicit override before it can even reach the ordinary staged flow.
 // Rejected/uploaded/etc. items have already had their decision made and
 // are not part of the review queue's whole reason to exist.
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	items, err := s.db.ListByStatus(ctx, queue.StatusStaged)
+	items, err := s.db.ListReviewable(ctx)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -163,6 +165,30 @@ func (s *Server) handleAlreadyInPortal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.db.MarkAlreadyInPortalWithTeaching(ctx, id, queue.ActorHuman, teaching); err != nil {
+		writeTransitionError(w, err)
+		return
+	}
+	s.redirectHome(w, r)
+}
+
+// handleOverridePeppol handles POST /items/{id}/override-peppol (F-36,
+// AC-14): the explicit UI action required before a known-Peppol-vendor
+// item can be approved at all. It only performs the
+// suppressed_peppol -> staged transition; the human's next click is
+// always the ordinary Approve button, never a hidden combined action.
+func (s *Server) handleOverridePeppol(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(r.PathValue("id"))
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+
+	if _, err := s.db.GetItem(ctx, id); err != nil {
+		writeItemLookupError(w, err)
+		return
+	}
+	if err := s.db.OverridePeppolSuppression(ctx, id, queue.ActorHuman); err != nil {
 		writeTransitionError(w, err)
 		return
 	}

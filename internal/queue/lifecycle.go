@@ -16,6 +16,14 @@ import (
 var allowedTransitions = map[Status][]Status{
 	StatusStaged:   {StatusApproved, StatusRejected, StatusAlreadyInPortal},
 	StatusApproved: {StatusUploaded, StatusFailed},
+	// F-36/AC-14: a suppressed_peppol item is not uploadable "without an
+	// explicit UI override action" — the override moves it back into the
+	// normal staged flow (OverridePeppolSuppression), from which it can
+	// then be approved/rejected/marked-already-in-portal like any other
+	// item. There is no direct suppressed_peppol -> approved edge: the
+	// override always lands on staged first, so the human's next click is
+	// always the ordinary Approve button, never a hidden shortcut.
+	StatusSuppressedPeppol: {StatusStaged},
 }
 
 func isAllowedTransition(from, to Status) bool {
@@ -177,6 +185,53 @@ func (db *DB) GetVendorTeachingByIdentityKey(ctx context.Context, identityKey st
 	t, err := time.Parse(timeLayout, markedAt)
 	if err != nil {
 		return nil, fmt.Errorf("queue: GetVendorTeachingByIdentityKey(%q): parse marked_at: %w", identityKey, err)
+	}
+	vt.MarkedAt = t.UTC()
+	return &vt, nil
+}
+
+// OverridePeppolSuppression moves an item suppressed_peppol -> staged
+// (F-36, AC-14): the explicit UI override action that unblocks a
+// known-Peppol item for the ordinary Approve/Reject/Already-in-portal
+// flow. actor is normally ActorHuman — there is no automatic override
+// path.
+func (db *DB) OverridePeppolSuppression(ctx context.Context, itemID int64, actor Actor) error {
+	return db.transition(ctx, itemID, StatusStaged, actor, nil)
+}
+
+// GetVendorTeachingByVendorDomain looks up a vendor_teaching row by its
+// primary key, vendor_domain — the actual F-35 match key ("future items
+// whose vendor_domain matches a vendor previously marked
+// already_in_portal"). Used by StageItem's L4 check at staging time and
+// by the webui to render the "probably already handled" badge's reason
+// and teaching date (AC-13) — unlike GetVendorTeachingByIdentityKey, this
+// finds the row regardless of whether the new item's own identity_key
+// happens to match the taught item's, which is what F-35 actually
+// requires (two different invoices from the same vendor rarely share an
+// identity key at all). Returns sql.ErrNoRows (wrapped) when vendorDomain
+// is empty or no row matches.
+func (db *DB) GetVendorTeachingByVendorDomain(ctx context.Context, vendorDomain string) (*VendorTeaching, error) {
+	if vendorDomain == "" {
+		return nil, fmt.Errorf("queue: GetVendorTeachingByVendorDomain(%q): %w", vendorDomain, sql.ErrNoRows)
+	}
+	row := db.sqlDB.QueryRowContext(ctx, `
+		SELECT vendor_domain, identity_key, reason, marked_at, note
+		FROM vendor_teaching WHERE vendor_domain = ? LIMIT 1
+	`, vendorDomain)
+
+	var (
+		vt                   VendorTeaching
+		identityKeyCol, note sql.NullString
+		markedAt             string
+	)
+	if err := row.Scan(&vt.VendorDomain, &identityKeyCol, &vt.Reason, &markedAt, &note); err != nil {
+		return nil, fmt.Errorf("queue: GetVendorTeachingByVendorDomain(%q): %w", vendorDomain, err)
+	}
+	vt.IdentityKey = identityKeyCol.String
+	vt.Note = note.String
+	t, err := time.Parse(timeLayout, markedAt)
+	if err != nil {
+		return nil, fmt.Errorf("queue: GetVendorTeachingByVendorDomain(%q): parse marked_at: %w", vendorDomain, err)
 	}
 	vt.MarkedAt = t.UTC()
 	return &vt, nil

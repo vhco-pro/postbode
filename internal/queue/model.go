@@ -165,6 +165,19 @@ type NewItem struct {
 	NeedsManualHandling bool
 	LowConfidence       bool
 	UnsupportedType     bool
+	// VendorDomain is the sender's domain (internal/dedup.VendorDomain),
+	// used only as StageItem's L4 (F-34/F-35) match key against
+	// vendor_teaching — it is not persisted as its own column. Empty means
+	// "no domain known", which simply disables L4 matching for this item;
+	// it never blocks staging.
+	VendorDomain string
+	// SuppressedPeppol is the caller's F-36 known-Peppol glob match
+	// (internal/dedup.MatchesKnownPeppol against config's
+	// vendors.known_peppol), computed before StageItem runs because it is
+	// config-declared, not something queue itself has any business
+	// evaluating. When true the item still stages — in status
+	// suppressed_peppol — never dropped (AC-14).
+	SuppressedPeppol bool
 }
 
 // StageResult is the outcome of StageItem.

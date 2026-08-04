@@ -47,6 +47,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /items/{id}/approve", s.requireToken(s.handleApprove))
 	mux.HandleFunc("POST /items/{id}/reject", s.requireToken(s.handleReject))
 	mux.HandleFunc("POST /items/{id}/already-in-portal", s.requireToken(s.handleAlreadyInPortal))
+	mux.HandleFunc("POST /items/{id}/override-peppol", s.requireToken(s.handleOverridePeppol))
 	mux.HandleFunc("POST /approve-all", s.requireToken(s.handleApproveAll))
 	return mux
 }

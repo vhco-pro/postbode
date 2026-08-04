@@ -35,6 +35,12 @@
     </div>
     <div><a href="/preview/{{.Item.ID}}?t={{$token}}">Preview PDF</a></div>
     <div>
+      {{if .NeedsPeppolOverride}}
+      <form class="inline" method="post" action="/items/{{.Item.ID}}/override-peppol">
+        <input type="hidden" name="t" value="{{$token}}">
+        <button type="submit">Override known-Peppol suppression</button>
+      </form>
+      {{else}}
       {{if .Approvable}}
       <form class="inline" method="post" action="/items/{{.Item.ID}}/approve">
         <input type="hidden" name="t" value="{{$token}}">
@@ -50,6 +56,7 @@
         <input type="text" name="note" placeholder="note (optional)">
         <button type="submit">Already in portal</button>
       </form>
+      {{end}}
     </div>
   </li>
 {{end}}

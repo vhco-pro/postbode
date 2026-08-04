@@ -9,17 +9,37 @@ import (
 )
 
 // StageItem inserts one extracted document as a queue item, applying — in
-// order, inside a single transaction — the F-44 rejection memory check and
-// the F-31 (L2) SHA-256 dedup check:
+// order, inside a single transaction — the F-44 rejection memory check,
+// the F-36 known-Peppol suppression, the F-31 (L2) SHA-256 dedup check,
+// the F-32/F-33 (L3) identity-key match and the F-34/F-35 (L4) vendor
+// teaching match:
 //
 //  1. If (gmail_message_id, sha256) was previously rejected, nothing is
 //     inserted at all: StageResult.Skipped is true (F-44).
-//  2. Otherwise, if sha256 matches an item currently in one of the active
+//  2. Otherwise, if in.SuppressedPeppol is set (the caller already matched
+//     the sender against vendors.known_peppol), the item is inserted with
+//     status=suppressed_peppol. L2/L3/L4 are skipped — a config-declared
+//     Peppol vendor is a stronger, human-authored signal than any
+//     heuristic this package could add on top. It still stages: never
+//     uploadable without an explicit override, never dropped (F-36,
+//     AC-14).
+//  3. Otherwise, if sha256 matches an item currently in one of the active
 //     statuses (staged/approved/uploaded/already_in_portal), the new item is
 //     inserted with status=duplicate_linked, dedup_layer=L2 and
 //     linked_item_id pointing at the match. It is never uploadable (F-31,
 //     AC-11).
-//  3. Otherwise the item is inserted as status=staged.
+//  4. Otherwise the item is inserted as status=staged, and two independent,
+//     non-suppressing annotations run against that same "staged" row:
+//     - L3 (F-32/F-33): if in.IdentityKey matches an item in the active
+//     status set, possible_duplicate is set, dedup_layer='L3' and
+//     linked_item_id points at the match. The item still stages —
+//     nothing about this ever changes its status.
+//     - L4 (F-34/F-35): if in.VendorDomain has a vendor_teaching row
+//     (an earlier "already in portal" action), probably_already_handled
+//     is set. Again, the status is untouched.
+//
+// Both L3 and L4 are annotations, never gates: see CLAUDE.md and
+// ADR-001 — "L3 and L4 must NEVER auto-suppress."
 func (db *DB) StageItem(ctx context.Context, in NewItem) (StageResult, error) {
 	if in.GmailMessageID == "" {
 		return StageResult{}, errors.New("queue: StageItem: gmail message id is required")
@@ -50,26 +70,74 @@ func (db *DB) StageItem(ctx context.Context, in NewItem) (StageResult, error) {
 		return StageResult{}, fmt.Errorf("queue: StageItem: check rejection memory: %w", err)
 	}
 
-	// F-31 (L2): SHA-256 match against the active status set.
-	var linkedID int64
-	err = tx.QueryRowContext(ctx, `
-		SELECT id FROM item WHERE sha256 = ? AND status IN ('staged','approved','uploaded','already_in_portal')
-		ORDER BY id LIMIT 1
-	`, in.SHA256).Scan(&linkedID)
-
 	status := StatusStaged
 	dedupLayer := DedupLayer("")
 	var linkedItemID *int64
-	switch {
-	case err == nil:
-		status = StatusDuplicateLinked
-		dedupLayer = DedupLayerL2
-		id := linkedID
-		linkedItemID = &id
-	case errors.Is(err, sql.ErrNoRows):
-		// no match — status stays StatusStaged
-	default:
-		return StageResult{}, fmt.Errorf("queue: StageItem: check L2 dedup: %w", err)
+	var possibleDuplicate, probablyAlreadyHandled bool
+
+	if in.SuppressedPeppol {
+		// F-36: config-declared suppression takes priority and short-
+		// circuits L2/L3/L4 — see the doc comment above.
+		status = StatusSuppressedPeppol
+	} else {
+		// F-31 (L2): SHA-256 match against the active status set.
+		var linkedID int64
+		err = tx.QueryRowContext(ctx, `
+			SELECT id FROM item WHERE sha256 = ? AND status IN ('staged','approved','uploaded','already_in_portal')
+			ORDER BY id LIMIT 1
+		`, in.SHA256).Scan(&linkedID)
+
+		switch {
+		case err == nil:
+			status = StatusDuplicateLinked
+			dedupLayer = DedupLayerL2
+			id := linkedID
+			linkedItemID = &id
+		case errors.Is(err, sql.ErrNoRows):
+			// no match — status stays StatusStaged
+		default:
+			return StageResult{}, fmt.Errorf("queue: StageItem: check L2 dedup: %w", err)
+		}
+
+		if status == StatusStaged {
+			// F-32/F-33 (L3): identity-key match, badge only — never
+			// changes status, never blocks upload.
+			if in.IdentityKey != "" {
+				var matchedID int64
+				err = tx.QueryRowContext(ctx, `
+					SELECT id FROM item WHERE identity_key = ? AND status IN ('staged','approved','uploaded','already_in_portal')
+					ORDER BY id LIMIT 1
+				`, in.IdentityKey).Scan(&matchedID)
+				switch {
+				case err == nil:
+					possibleDuplicate = true
+					dedupLayer = DedupLayerL3
+					id := matchedID
+					linkedItemID = &id
+				case errors.Is(err, sql.ErrNoRows):
+					// no match
+				default:
+					return StageResult{}, fmt.Errorf("queue: StageItem: check L3 dedup: %w", err)
+				}
+			}
+
+			// F-34/F-35 (L4): vendor-teaching match, badge only — never
+			// changes status, never blocks upload.
+			if in.VendorDomain != "" {
+				var teachingMarker string
+				err = tx.QueryRowContext(ctx, `
+					SELECT vendor_domain FROM vendor_teaching WHERE vendor_domain = ? LIMIT 1
+				`, in.VendorDomain).Scan(&teachingMarker)
+				switch {
+				case err == nil:
+					probablyAlreadyHandled = true
+				case errors.Is(err, sql.ErrNoRows):
+					// vendor never taught
+				default:
+					return StageResult{}, fmt.Errorf("queue: StageItem: check L4 vendor teaching: %w", err)
+				}
+			}
+		}
 	}
 
 	now := time.Now().UTC()
@@ -77,13 +145,15 @@ func (db *DB) StageItem(ctx context.Context, in NewItem) (StageResult, error) {
 		INSERT INTO item (
 			gmail_message_id, spool_path, orig_filename, proposed_filename, mime_type,
 			size_bytes, sha256, identity_key, identity_confidence, identity_source,
-			status, needs_manual_handling, low_confidence, unsupported_type,
+			status, needs_manual_handling, low_confidence, possible_duplicate,
+			probably_already_handled, unsupported_type,
 			linked_item_id, dedup_layer, staged_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		in.GmailMessageID, stringOrNil(in.SpoolPath), stringOrNil(in.OrigFilename), stringOrNil(in.ProposedFilename), stringOrNil(in.MimeType),
 		in.SizeBytes, in.SHA256, stringOrNil(in.IdentityKey), stringOrNil(in.IdentityConfidence), stringOrNil(in.IdentitySource),
-		string(status), boolToInt(in.NeedsManualHandling), boolToInt(in.LowConfidence), boolToInt(in.UnsupportedType),
+		string(status), boolToInt(in.NeedsManualHandling), boolToInt(in.LowConfidence), boolToInt(possibleDuplicate),
+		boolToInt(probablyAlreadyHandled), boolToInt(in.UnsupportedType),
 		linkedItemID, stringOrNil(string(dedupLayer)), timeToDB(now),
 	)
 	if err != nil {
@@ -165,6 +235,34 @@ func (db *DB) ListByStatus(ctx context.Context, status Status) ([]*Item, error) 
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("queue: ListByStatus(%s): %w", status, err)
+	}
+	return items, nil
+}
+
+// ListReviewable returns every item currently needing human attention in
+// the review UI: status=staged (needs an initial decision) and
+// status=suppressed_peppol (needs an explicit F-36/AC-14 override before
+// it can even reach the ordinary staged flow) — both stay visible until a
+// human acts, oldest first.
+func (db *DB) ListReviewable(ctx context.Context) ([]*Item, error) {
+	rows, err := db.sqlDB.QueryContext(ctx, `
+		SELECT `+itemColumns+` FROM item WHERE status IN (?, ?) ORDER BY staged_at, id
+	`, string(StatusStaged), string(StatusSuppressedPeppol))
+	if err != nil {
+		return nil, fmt.Errorf("queue: ListReviewable: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*Item
+	for rows.Next() {
+		item, err := scanItem(rows)
+		if err != nil {
+			return nil, fmt.Errorf("queue: ListReviewable: scan: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("queue: ListReviewable: %w", err)
 	}
 	return items, nil
 }

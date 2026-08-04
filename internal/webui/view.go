@@ -26,12 +26,19 @@ type itemView struct {
 	Subject    string
 	Badges     []badge
 	Approvable bool
+	// NeedsPeppolOverride is true for a status=suppressed_peppol item
+	// (F-36, AC-14): Approve is never offered until the explicit override
+	// action runs, which is a separate control from Approve itself.
+	NeedsPeppolOverride bool
 }
 
 // approvable reports whether item may be approved from the UI (AC-7): it
 // must be staged, and must carry neither needs_manual_handling nor
 // unsupported_type — both of those require a human to handle the document
 // outside Postbode entirely, so an Approve button would be actively wrong.
+// A suppressed_peppol item is excluded structurally: its Status is never
+// staged until the F-36 override runs, so it already falls out of the
+// first condition without any special case here.
 func approvable(item *queue.Item) bool {
 	return item.Status == queue.StatusStaged && !item.NeedsManualHandling && !item.UnsupportedType
 }
@@ -43,13 +50,16 @@ func approvable(item *queue.Item) bool {
 // item from review.
 func (s *Server) buildItemView(ctx context.Context, item *queue.Item) itemView {
 	v := itemView{
-		Item:       item,
-		Approvable: approvable(item),
+		Item:                item,
+		Approvable:          approvable(item),
+		NeedsPeppolOverride: item.Status == queue.StatusSuppressedPeppol,
 	}
 
+	var domain string
 	if msg, err := s.db.GetMessage(ctx, item.GmailMessageID); err == nil {
 		v.Sender = msg.From
 		v.Subject = msg.Subject
+		domain = vendorDomain(msg.From)
 	}
 
 	if item.NeedsManualHandling {
@@ -65,7 +75,10 @@ func (s *Server) buildItemView(ctx context.Context, item *queue.Item) itemView {
 		v.Badges = append(v.Badges, badge{Label: "possible duplicate", Detail: s.duplicateDetail(ctx, item)})
 	}
 	if item.ProbablyAlreadyHandled {
-		v.Badges = append(v.Badges, badge{Label: "probably already handled", Detail: s.teachingDetail(ctx, item)})
+		v.Badges = append(v.Badges, badge{Label: "probably already handled", Detail: s.teachingDetail(ctx, domain)})
+	}
+	if item.Status == queue.StatusSuppressedPeppol {
+		v.Badges = append(v.Badges, badge{Label: "suppressed (known Peppol vendor)", Detail: "requires an explicit override before it can be approved (F-36)"})
 	}
 
 	return v
@@ -94,12 +107,16 @@ func (s *Server) duplicateDetail(ctx context.Context, item *queue.Item) string {
 }
 
 // teachingDetail renders the F-35 "reason and teaching date" detail for a
-// probably_already_handled badge, looked up by the item's identity_key
-// against the vendor_teaching row an earlier "already in portal" action
-// recorded (AC-13). The L4 engine that sets ProbablyAlreadyHandled at
-// staging time is Phase 12's job — this only supports rendering it.
-func (s *Server) teachingDetail(ctx context.Context, item *queue.Item) string {
-	vt, err := s.db.GetVendorTeachingByIdentityKey(ctx, item.IdentityKey)
+// probably_already_handled badge, looked up by the item's sender vendor
+// domain against the vendor_teaching row an earlier "already in portal"
+// action recorded (AC-13) — vendor_domain, not identity_key, is F-35's
+// actual match key: two different invoices from the same taught vendor
+// essentially never share an identity_key, so a lookup keyed on
+// identity_key would silently fail to explain most real matches. The L4
+// engine that sets ProbablyAlreadyHandled at staging time lives in
+// internal/queue.StageItem (Phase 12); this only renders it.
+func (s *Server) teachingDetail(ctx context.Context, domain string) string {
+	vt, err := s.db.GetVendorTeachingByVendorDomain(ctx, domain)
 	if err != nil {
 		return "reason unavailable"
 	}
