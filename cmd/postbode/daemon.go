@@ -195,12 +195,10 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 		Logf:          logf,
 	}
 
-	token, err := webui.GenerateToken()
+	// Reuse the existing token rather than minting a new one each start, so
+	// a bookmarked review URL survives restarts (see LoadOrCreateToken).
+	token, err := webui.LoadOrCreateToken(webui.DefaultTokenPath(home))
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
-		return 1
-	}
-	if err := webui.WriteTokenFile(webui.DefaultTokenPath(home), token); err != nil {
 		_, _ = fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
 		return 1
 	}

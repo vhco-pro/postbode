@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // GenerateToken returns a fresh random session token (F-46): 32 bytes of
@@ -58,7 +59,9 @@ func ReadTokenFile(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("webui: read token file: %w", err)
 	}
-	return string(b), nil
+	// Trim: an editor or `echo` adding a trailing newline must not silently
+	// break authentication for the whole UI.
+	return strings.TrimSpace(string(b)), nil
 }
 
 // tokensEqual reports whether got matches want using a constant-time
@@ -71,4 +74,35 @@ func tokensEqual(want, got string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(want), []byte(got)) == 1
+}
+
+// LoadOrCreateToken returns the token stored at path, generating and
+// persisting a new one only when there is nothing usable there.
+//
+// The token used to be regenerated on every daemon start. That is a real
+// cost with no matching benefit: it invalidated every bookmark and open
+// tab on each restart — and a daemon under launchd KeepAlive restarts
+// whenever it is upgraded, rebooted or crashes — while protecting against
+// nothing extra, because the value lives in the same 0600 file either way.
+// Anyone who can read that file as the owning user can read it after a
+// rotation just as easily.
+//
+// Rotation is still available deliberately (delete the file, or call
+// GenerateToken + WriteTokenFile) for the case that actually warrants it:
+// a token believed to have leaked, e.g. pasted into a chat or a shared
+// screenshot.
+func LoadOrCreateToken(path string) (string, error) {
+	if tok, err := ReadTokenFile(path); err == nil {
+		if t := strings.TrimSpace(tok); t != "" {
+			return t, nil
+		}
+	}
+	tok, err := GenerateToken()
+	if err != nil {
+		return "", err
+	}
+	if err := WriteTokenFile(path, tok); err != nil {
+		return "", err
+	}
+	return tok, nil
 }

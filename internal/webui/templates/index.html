@@ -3,53 +3,162 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Postbode review queue</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Postbode — review queue</title>
 <style>
-  body { font-family: sans-serif; margin: 2rem; }
-  li.item { border: 1px solid #ccc; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; list-style: none; }
-  .badge { display: inline-block; background: #eee; border-radius: 4px; padding: 0.15rem 0.5rem; margin: 0.15rem 0.25rem 0.15rem 0; font-size: 0.85rem; }
-  form.inline { display: inline; margin-right: 0.5rem; }
+  /* No client-side JS anywhere in this file (NF-01): every interaction is a
+     form POST, and the preview uses native <details>. */
+  :root {
+    --bg-0:#0a1733; --bg-1:#122a5c; --bg-2:#1b3f86;
+    --card:rgba(255,255,255,.055); --card-line:rgba(255,255,255,.115);
+    --ink:#eaf0ff; --ink-dim:#a8badf; --ink-faint:#7f92ba;
+    --accent:#4f8cff; --ok:#34d39c; --warn:#f5b544; --danger:#ff6b6b; --peppol:#b78cff;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; min-height:100vh; color:var(--ink);
+    font:15px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    background:linear-gradient(160deg, var(--bg-0) 0%, var(--bg-1) 48%, var(--bg-2) 100%);
+    background-attachment:fixed;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:60rem; margin:0 auto; padding:2.5rem 1.5rem 5rem; }
+
+  header { display:flex; align-items:baseline; gap:.75rem; flex-wrap:wrap; margin-bottom:.35rem; }
+  h1 { font-size:1.6rem; letter-spacing:-.02em; margin:0; font-weight:650; }
+  .count {
+    background:var(--accent); color:#04122e; font-weight:700;
+    border-radius:999px; padding:.1rem .6rem; font-size:.85rem;
+  }
+  .sub { color:var(--ink-dim); margin:.1rem 0 1.75rem; font-size:.92rem; }
+
+  .bar { margin-bottom:1.5rem; }
+
+  ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.9rem; }
+  li.item {
+    background:var(--card); border:1px solid var(--card-line); border-radius:12px;
+    padding:1.05rem 1.15rem;
+    backdrop-filter:blur(6px);
+  }
+  .fname { font-weight:640; font-size:1.02rem; letter-spacing:-.01em; word-break:break-all; }
+  .orig { color:var(--ink-faint); font-size:.85rem; font-weight:400; }
+  .meta { color:var(--ink-dim); font-size:.9rem; margin-top:.3rem; word-break:break-word; }
+  .meta .k { color:var(--ink-faint); }
+
+  .badges { margin-top:.6rem; display:flex; flex-wrap:wrap; gap:.35rem; }
+  .badge {
+    display:inline-block; border-radius:6px; padding:.16rem .5rem; font-size:.79rem;
+    background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.14); color:var(--ink-dim);
+  }
+  .badge.status { background:rgba(79,140,255,.16); border-color:rgba(79,140,255,.4); color:#cfe0ff; }
+  .badge.dup    { background:rgba(245,181,68,.14); border-color:rgba(245,181,68,.42); color:#ffdd9e; }
+  .badge.manual { background:rgba(255,107,107,.14); border-color:rgba(255,107,107,.42); color:#ffc9c9; }
+  .badge.peppol { background:rgba(183,140,255,.14); border-color:rgba(183,140,255,.42); color:#e0ccff; }
+
+  details.preview { margin-top:.75rem; }
+  details.preview summary {
+    cursor:pointer; color:var(--accent); font-size:.88rem; width:max-content;
+    list-style:none;
+  }
+  details.preview summary::-webkit-details-marker { display:none; }
+  details.preview summary::before { content:"▸ "; }
+  details.preview[open] summary::before { content:"▾ "; }
+  details.preview embed {
+    width:100%; height:26rem; margin-top:.6rem; border-radius:8px;
+    border:1px solid var(--card-line); background:#fff;
+  }
+
+  .actions { margin-top:.85rem; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+  form.inline { display:inline-flex; gap:.4rem; align-items:center; margin:0; }
+  button {
+    font:inherit; font-size:.88rem; font-weight:560; cursor:pointer;
+    border-radius:8px; padding:.44rem .85rem;
+    border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.07); color:var(--ink);
+    transition:background .12s ease, border-color .12s ease, transform .04s ease;
+  }
+  button:hover { background:rgba(255,255,255,.13); }
+  button:active { transform:translateY(1px); }
+  button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  button.primary { background:var(--ok); border-color:transparent; color:#04241a; }
+  button.primary:hover { filter:brightness(1.07); background:var(--ok); }
+  button.danger:hover { background:rgba(255,107,107,.18); border-color:rgba(255,107,107,.45); }
+  button.big { font-size:.95rem; padding:.6rem 1.15rem; }
+
+  input[type=text] {
+    font:inherit; font-size:.86rem; color:var(--ink);
+    background:rgba(0,0,0,.22); border:1px solid var(--card-line);
+    border-radius:8px; padding:.4rem .6rem; width:11rem;
+  }
+  input[type=text]::placeholder { color:var(--ink-faint); }
+  input[type=text]:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+
+  .empty {
+    background:var(--card); border:1px solid var(--card-line); border-radius:12px;
+    padding:2.5rem 1.5rem; text-align:center; color:var(--ink-dim);
+  }
+  .empty strong { display:block; color:var(--ink); font-size:1.05rem; margin-bottom:.3rem; }
+
+  footer { margin-top:2.5rem; color:var(--ink-faint); font-size:.82rem; text-align:center; }
+  footer code { background:rgba(0,0,0,.25); padding:.1rem .35rem; border-radius:4px; }
 </style>
 </head>
 <body>
-<h1>Postbode review queue ({{len .Items}})</h1>
+<div class="wrap">
+
+<header>
+  <h1>Review queue</h1>
+  <span class="count">{{len .Items}}</span>
+</header>
+<p class="sub">Nothing is uploaded to ClearFacts until you approve it here.</p>
 
 {{if .Items}}
-<form class="inline" method="post" action="/approve-all">
-  <input type="hidden" name="t" value="{{.Token}}">
-  <button type="submit">Approve all &amp; upload</button>
-</form>
-{{else}}
-<p>Nothing waiting for review.</p>
+<div class="bar">
+  <form class="inline" method="post" action="/approve-all">
+    <input type="hidden" name="t" value="{{.Token}}">
+    <button type="submit" class="primary big">Approve all &amp; upload</button>
+  </form>
+</div>
 {{end}}
 
+{{if .Items}}
 <ul>
 {{$token := .Token}}
 {{range .Items}}
   <li class="item">
-    <div><strong>{{.Item.ProposedFilename}}</strong> (orig: {{.Item.OrigFilename}})</div>
-    <div>From: {{.Sender}} — Subject: {{.Subject}}</div>
-    <div>Status: {{.Item.Status}}</div>
-    <div>
-      {{range .Badges}}<span class="badge">{{.Label}}{{if .Detail}}: {{.Detail}}{{end}}</span>{{end}}
+    <div class="fname">{{.Item.ProposedFilename}}
+      <span class="orig">· {{.Item.OrigFilename}}</span>
     </div>
-    <div><a href="/preview/{{.Item.ID}}?t={{$token}}">Preview PDF</a></div>
-    <div>
+    <div class="meta"><span class="k">From</span> {{.Sender}}</div>
+    <div class="meta"><span class="k">Subject</span> {{.Subject}}</div>
+
+    <div class="badges">
+      <span class="badge status">{{.Item.Status}}</span>
+      {{range .Badges}}<span class="badge{{if .Detail}} dup{{end}}">{{.Label}}{{if .Detail}}: {{.Detail}}{{end}}</span>{{end}}
+      {{if .Item.NeedsManualHandling}}<span class="badge manual">needs manual handling</span>{{end}}
+      {{if .NeedsPeppolOverride}}<span class="badge peppol">Peppol-suppressed</span>{{end}}
+    </div>
+
+    <details class="preview">
+      <summary>Preview</summary>
+      <embed src="/preview/{{.Item.ID}}?t={{$token}}" type="application/pdf">
+    </details>
+
+    <div class="actions">
       {{if .NeedsPeppolOverride}}
       <form class="inline" method="post" action="/items/{{.Item.ID}}/override-peppol">
         <input type="hidden" name="t" value="{{$token}}">
-        <button type="submit">Override known-Peppol suppression</button>
+        <button type="submit">Override Peppol suppression</button>
       </form>
       {{else}}
       {{if .Approvable}}
       <form class="inline" method="post" action="/items/{{.Item.ID}}/approve">
         <input type="hidden" name="t" value="{{$token}}">
-        <button type="submit">Approve</button>
+        <button type="submit" class="primary">Approve</button>
       </form>
       {{end}}
       <form class="inline" method="post" action="/items/{{.Item.ID}}/reject">
         <input type="hidden" name="t" value="{{$token}}">
-        <button type="submit">Reject</button>
+        <button type="submit" class="danger">Reject</button>
       </form>
       <form class="inline" method="post" action="/items/{{.Item.ID}}/already-in-portal">
         <input type="hidden" name="t" value="{{$token}}">
@@ -61,6 +170,16 @@
   </li>
 {{end}}
 </ul>
+{{else}}
+<div class="empty">
+  <strong>Nothing waiting for review</strong>
+  Postbode is watching your inbox. New invoices show up here automatically.
+</div>
+{{end}}
+
+<footer>Postbode · <code>postbode status</code> for queue counts · <code>postbode status --find &lt;vendor&gt;</code> to check if something was already sent</footer>
+
+</div>
 </body>
 </html>
 {{end}}
