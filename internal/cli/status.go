@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"sort"
 	"time"
 
@@ -118,6 +119,23 @@ func BuildStatusReport(ctx context.Context, db *queue.DB, now time.Time) (Status
 }
 
 // FormatStatus renders r exactly as `postbode status` prints it (F-64).
+// ReviewUIReachable reports whether something is serving the review UI on
+// addr, by probing its unauthenticated /healthz endpoint.
+//
+// This is surfaced in `postbode status` because a failed UI bind is
+// otherwise silent from the user's side: the daemon keeps polling and
+// staging perfectly well, so the only symptom is that the queue page does
+// not load — at the moment you actually want it.
+func ReviewUIReachable(addr string) bool {
+	c := &http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := c.Get("http://" + addr + "/healthz")
+	if err != nil {
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return resp.StatusCode == http.StatusOK
+}
+
 func FormatStatus(w io.Writer, r StatusReport) {
 	if r.Sync.LastPollAt != nil {
 		_, _ = fmt.Fprintf(w, "last poll:        %s (%s ago)\n", formatTime(*r.Sync.LastPollAt), formatAge(r.Now.Sub(*r.Sync.LastPollAt)))
@@ -162,7 +180,19 @@ func FormatStatus(w io.Writer, r StatusReport) {
 		_, _ = fmt.Fprintf(w, "  [%d] %s since %s (%s ago) — %s\n",
 			it.ID, it.Status, formatTime(it.StagedAt), formatAge(r.Now.Sub(it.StagedAt)), name)
 	}
+
+	if ReviewUIReachable(reviewUIAddr) {
+		_, _ = fmt.Fprintf(w, "review UI:        http://%s/  (run `postbode review` to open)\n", reviewUIAddr)
+	} else {
+		_, _ = fmt.Fprintf(w, "review UI:        NOT REACHABLE on %s — nothing can be approved.\n", reviewUIAddr)
+		_, _ = fmt.Fprintln(w, "                  Is the daemon running? `brew services list` / `pgrep -fl postbode`")
+	}
 }
+
+// reviewUIAddr mirrors webui.DefaultAddr. Duplicated rather than imported
+// to keep internal/cli free of a dependency on internal/webui for one
+// constant.
+const reviewUIAddr = "127.0.0.1:7391"
 
 func formatTime(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)

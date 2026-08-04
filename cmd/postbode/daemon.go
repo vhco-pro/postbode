@@ -228,21 +228,48 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 	// visibly react, which reads as broken.
 	uiSrv.OnApprove = d.Nudge
 
+	// Bind synchronously, BEFORE announcing startup.
+	//
+	// This used to happen inside the goroutine below, with the error only
+	// logged after wg.Wait() — i.e. at shutdown. A failed bind (almost
+	// always "address already in use" from a second postbode) was therefore
+	// invisible for the entire life of the daemon, while the log cheerfully
+	// claimed "review UI on 127.0.0.1:7391". Polling and uploading kept
+	// working, so nothing looked wrong until someone tried to open the queue.
 	var wg sync.WaitGroup
 	var uiErr, daemonErr error
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		if err := uiSrv.ListenAndServe(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			uiErr = err
-		}
-	}()
+
+	ln, lerr := webui.Listen(webui.DefaultAddr)
+	if lerr != nil {
+		// Not fatal: the watcher must keep staging so no invoice is missed
+		// (G-1). But nothing can be approved without the UI, so say so
+		// loudly in the log and to the user, rather than pretending.
+		logf("daemon: REVIEW UI UNAVAILABLE — could not bind %s: %v", webui.DefaultAddr, lerr)
+		logf("daemon: another postbode is probably already running; check `pgrep -fl postbode`. "+
+			"Polling and staging continue, but nothing can be approved or uploaded until this is resolved.")
+		_ = notifier.Notify(ctx, fmt.Sprintf("Postbode: review UI could not start on %s — another copy may be running.", webui.DefaultAddr))
+		wg.Add(1)
+	} else {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if err := uiSrv.Serve(ctx, ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				uiErr = err
+				logf("daemon: review UI server error: %v", err)
+			}
+		}()
+	}
+
 	go func() {
 		defer wg.Done()
 		daemonErr = d.Run(ctx)
 	}()
 
-	logf("daemon: started (review UI on %s)", webui.DefaultAddr)
+	if lerr == nil {
+		logf("daemon: started (review UI on %s)", webui.DefaultAddr)
+	} else {
+		logf("daemon: started WITHOUT the review UI")
+	}
 	<-ctx.Done()
 	logf("daemon: shutdown signal received, stopping")
 	wg.Wait()
