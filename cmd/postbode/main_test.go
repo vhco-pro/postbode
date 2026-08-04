@@ -11,6 +11,7 @@ import (
 )
 
 func TestRunDispatch(t *testing.T) {
+	withTempHome(t)
 	tests := []struct {
 		name     string
 		args     []string
@@ -20,7 +21,7 @@ func TestRunDispatch(t *testing.T) {
 		{name: "no args prints usage", args: nil, wantCode: 2, wantOut: "usage: postbode"},
 		{name: "help exits zero", args: []string{"--help"}, wantCode: 0, wantOut: "usage: postbode"},
 		{name: "unknown command", args: []string{"frobnicate"}, wantCode: 2, wantOut: `unknown command "frobnicate"`},
-		{name: "known but unimplemented", args: []string{"daemon"}, wantCode: 1, wantOut: "not implemented yet"},
+		{name: "daemon without credentials degrades gracefully", args: []string{"daemon"}, wantCode: 0, wantOut: "not yet authenticated"},
 	}
 
 	for _, tt := range tests {
@@ -35,21 +36,5 @@ func TestRunDispatch(t *testing.T) {
 				t.Errorf("run(%q) output = %q, want it to contain %q", tt.args, combined, tt.wantOut)
 			}
 		})
-	}
-}
-
-// A known subcommand must never silently succeed while unimplemented — that
-// would read as "the daemon ran" to launchd's KeepAlive. Only "daemon"
-// remains unimplemented as of Phase 10; review/status/log have their own
-// dedicated tests (status_test.go, log_test.go, review_test.go).
-func TestUnimplementedCommandsFailLoudly(t *testing.T) {
-	for _, cmd := range []string{"daemon"} {
-		var stdout, stderr bytes.Buffer
-		if code := run([]string{cmd}, &stdout, &stderr); code == 0 {
-			t.Errorf("run([%q]) exited 0 while unimplemented; must be non-zero", cmd)
-		}
-		if stderr.Len() == 0 {
-			t.Errorf("run([%q]) wrote nothing to stderr", cmd)
-		}
 	}
 }

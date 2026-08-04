@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Postbode LaunchAgent (F-61, AC-25). Installed by `make install-launchagent`,
+  which copies this file verbatim into ~/Library/LaunchAgents — there is no
+  templating step, so every path below is this single-user machine's real,
+  absolute path (this repo is a personal, single-user macOS tool; see
+  CLAUDE.md).
+
+  KeepAlive + RunAtLoad together give AC-25's contract: launchd starts
+  Postbode at login and restarts it automatically after any exit, including
+  `kill -9`. The daemon's own crash-resilience (internal/daemon.Daemon.Run,
+  Phase 13) means a restart always finds durable SQLite state intact
+  (NF-07) — nothing here depends on a clean shutdown having happened.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>be.vhco.postbode</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/michielvh/code/personal/postbode/bin/postbode</string>
+		<string>daemon</string>
+	</array>
+
+	<key>WorkingDirectory</key>
+	<string>/Users/michielvh/code/personal/postbode</string>
+
+	<key>RunAtLoad</key>
+	<true/>
+
+	<key>KeepAlive</key>
+	<true/>
+
+	<key>ProcessType</key>
+	<string>Background</string>
+
+	<key>StandardOutPath</key>
+	<string>/Users/michielvh/Library/Logs/Postbode/launchd.out.log</string>
+
+	<key>StandardErrorPath</key>
+	<string>/Users/michielvh/Library/Logs/Postbode/launchd.err.log</string>
+</dict>
+</plist>

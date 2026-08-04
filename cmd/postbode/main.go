@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/vhco-pro/postbode/internal/cli"
@@ -50,11 +51,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	switch args[0] {
 	case "daemon":
-		// The daemon entrypoint (watcher/uploader wiring) lands in a later
-		// phase; the dispatch case exists now so the skeleton builds, vets
-		// and tests clean.
-		fmt.Fprintf(stderr, "postbode: %q is not implemented yet\n", args[0])
-		return 1
+		return runDaemon(args[1:], stdout, stderr)
 	case "review":
 		return runReview(args[1:], stdout, stderr)
 	case "status":
@@ -180,6 +177,15 @@ func runReview(args []string, _, stderr io.Writer) int {
 	return 0
 }
 
+// main dispatches to run, with one alias: when this binary is invoked (or
+// symlinked/copied) as "postboded", the "daemon" subcommand is implied —
+// F-60's "single static Go binary with subcommands: postboded (daemon),
+// postbode review, postbode status, postbode log" names postboded as a
+// direct entry point, not merely "postbode daemon" under another name.
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	args := os.Args[1:]
+	if filepath.Base(os.Args[0]) == "postboded" {
+		args = append([]string{"daemon"}, args...)
+	}
+	os.Exit(run(args, os.Stdout, os.Stderr))
 }
