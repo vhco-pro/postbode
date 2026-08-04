@@ -38,16 +38,23 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # golangci-lint is installed BEFORE `make test`, because `make test`
+      # chains `make lint` (so one local command runs the whole gate). With
+      # the action further down, CI failed on a green suite: every package
+      # and the e2e run passed, then lint aborted with "golangci-lint is not
+      # installed". The action both installs and runs it, so this step is
+      # also the lint gate; `make test` re-running it is a few seconds and
+      # keeps the local and CI gates identical rather than subtly different.
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
       - name: go test (NF-12 gate)
         run: make test
 
       - name: go test (NF-09 no-network gate)
         run: make test-nonet
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
 
       # 2: Call our custom `GitVersion action` to tag the repo
       - name: Tag with GitVersion
