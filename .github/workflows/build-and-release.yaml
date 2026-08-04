@@ -75,6 +75,11 @@ jobs:
         with:
           github-token: ${{ github.token }}
           pgp-private-key: ${{ secrets.PGP_PRIVATE_KEY }}
+          # Must match go.mod's floor. The action defaults to an older Go and
+          # runs with GOTOOLCHAIN=local, so without this the release fails
+          # with "go.mod requires go >= 1.26.5 (running go 1.25.x)". Bump
+          # both together whenever go.mod moves.
+          go-version: '1.26.5'
 
       # 4: Build and Push Docker image — INTENTIONALLY OMITTED (Phase 16
       # plan deviation). Postbode is a macOS desktop daemon that shells out

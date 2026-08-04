@@ -120,3 +120,7 @@ full conventional-commit-to-version-bump table.
 - `.github/workflows/build-and-release.yaml` runs `go vet`, `make test`,
   `make test-nonet` and `golangci-lint` before tagging and releasing —
   CI cannot run yet, since this repo currently has no git remote.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
