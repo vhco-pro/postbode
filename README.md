@@ -121,6 +121,18 @@ full conventional-commit-to-version-bump table.
   `make test-nonet` and `golangci-lint` before tagging and releasing —
   CI cannot run yet, since this repo currently has no git remote.
 
+## Opening the review queue
+
+```
+postbode review
+```
+
+That reads the daemon's current session token and opens the UI. Afterwards
+`http://127.0.0.1:7391/` works directly in that browser — bookmark it.
+
+The token rotates whenever the daemon restarts. When it does, the page says so
+and names the command; just run `postbode review` again.
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
