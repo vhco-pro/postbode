@@ -2,7 +2,7 @@
 description: "Uploads are at-least-once with claim-in-transaction and are verified via document(id:), but an uploaded-but-unverified item is surfaced and never automatically retried."
 status: proposed
 date: 2026-08-03
-author: "SDD Planner (automated), run by michielvha <michielvh@outlook.com>"
+author: "SDD Planner (automated), run by michielvha <<maintainer>>"
 ---
 
 # ADR-003: Upload delivery semantics — at-least-once, claim-in-transaction, never retry the unverified

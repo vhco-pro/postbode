@@ -3,7 +3,7 @@ status: in-progress
 status_description: "Spec ratified to v1.3 (8 planner-found defects fixed). Starting Phase 1 (safety rails + skeleton, ends in the first commit) and Phase 2 (clearfacts client + httptest fake). Phase 3 is a human gate: D-1 (CF_TOKEN) is satisfied, D-2 (credentials.json) is NOT, so the spike's Gmail leg (round-trip d) is deferred and the ClearFacts legs (a, b, c, e) can run."
 description: "15-phase build of Postbode, a macOS launchd Go daemon that turns Gmail purchase-invoice attachments into human-approved ClearFacts uploads with four-layer local duplicate prevention (PRD P0 + P1)."
 spec: docs/specs/postbode-gmail-invoice-agent.spec.md
-author: "SDD Planner (automated), run by michielvha <michielvh@outlook.com>"
+author: "SDD Planner (automated), run by michielvha <<maintainer>>"
 goal: "Ship PRD phases P0 (live spike) and P1 (MVP daemon) of Postbode: poll Gmail INBOX, extract PDF invoices, apply rules, stage in a SQLite review queue behind a localhost UI, and upload only human-approved documents to ClearFacts as PURCHASE with proof of delivery and four dedup layers."
 priority: high
 created: 2026-08-03
@@ -307,8 +307,8 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 
 | Leg | Result | Evidence |
 |---|---|---|
-| (a) `administrations` | **PASS** | `companyNumber=1031077138` — bare, **not** `BE`-prefixed as the schema example implies (A-15). Written to config. |
-| (b) upload | **PASS** *(after a fix)* | `uuid=114ACDC3-8F1D-42AF-825B-FE9B3D2BCD53`, `amountOfPages=1` |
+| (a) `administrations` | **PASS** | `companyNumber=0XXXXXXXXX` — bare, **not** `BE`-prefixed as the schema example implies (A-15). Written to config. |
+| (b) upload | **PASS** *(after a fix)* | `uuid=<uuid-redacted>`, `amountOfPages=1` |
 | (c) `document(id:)` verify | **PASS** | `verified: true`; `type=PURCHASE`, `paymentState=UNPAID` |
 | (c2) provenance readback | **PASS** | `comment` round-trips on both `Document` and `File`; `tags=[]` |
 | (e) `companyStatistics` probe | **PASS (negative)** | All 8 candidate `type` strings rejected → **OQ-8 closed, Phase 14 dropped** |
@@ -320,7 +320,7 @@ All criteria are **taken verbatim from spec §7** — no parallel ids are introd
 
 > **The upload initially failed** with `Internal server error` and was root-caused by single-variable isolation against the live API: **`tags` is broken server-side.** `comment`-only succeeds, `tags`-only fails, `comment`+`tags` fails; file content is irrelevant (a 345-byte generated PDF and a 15 KB real PDF behave identically). The published schema documents `tags` as writable — it is not. F-56 now stamps `comment` alone (spec v1.4), and the client carries an inverted regression test asserting the `tags` key is **absent**.
 >
-> **Diagnosis cost 4 live documents**, not the 1 this phase anticipated, because isolating the variable required successful uploads as controls: `991AF69D…`, `7A262F7D…`, `89457063…`, `114ACDC3…` — all named `TEST-postbode-ignore.pdf`. All four need deleting from "In verwerking".
+> **Diagnosis cost 4 live documents**, not the 1 this phase anticipated, because isolating the variable required successful uploads as controls: `<uuid>`, `<uuid>`, `<uuid>`, `<uuid>` — all named `TEST-postbode-ignore.pdf`. All four need deleting from "In verwerking".
 
 **Exit gate (human, not automated)**:
 - [ ] Developer opens the portal, confirms the `TEST-postbode-ignore.pdf` uploads appeared in "In verwerking", and **deletes all four** (AC-5, D-4). Nothing in this phase may assert "it appeared in the portal" on its own.

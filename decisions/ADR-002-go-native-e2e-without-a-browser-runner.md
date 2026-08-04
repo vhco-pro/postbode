@@ -2,7 +2,7 @@
 description: "End-to-end tests drive the real localhost listener over net/http from Go instead of a browser runner, because a JS toolchain would violate the project's no-build-step and restricted-dependency constraints."
 status: proposed
 date: 2026-08-03
-author: "SDD Planner (automated), run by michielvha <michielvh@outlook.com>"
+author: "SDD Planner (automated), run by michielvha <<maintainer>>"
 ---
 
 # ADR-002: Go-native end-to-end testing, no browser runner

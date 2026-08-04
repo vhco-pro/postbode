@@ -2,7 +2,7 @@
 description: "Duplicate prevention is built as four local layers that badge rather than suppress, because the ClearFacts API exposes no way to ask the portal what it already holds."
 status: proposed
 date: 2026-08-03
-author: "SDD Planner (automated), run by michielvha <michielvh@outlook.com>"
+author: "SDD Planner (automated), run by michielvha <<maintainer>>"
 ---
 
 # ADR-001: Four-layer local duplicate prevention, badge-don't-suppress
