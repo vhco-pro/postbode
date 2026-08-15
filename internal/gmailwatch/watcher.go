@@ -13,10 +13,10 @@ import (
 // keys) Watcher needs. The daemon (cmd/postboded, out of this package's
 // scope) maps internal/config.Config.Gmail onto this.
 type Config struct {
-	// Watch is F-11's gmail.watch value. Only "inbox" (the default,
-	// case-insensitive) is implemented in P1 — see effectiveLabelID. The
-	// knob exists for future reversibility, not because P1 watches
-	// anything narrower or broader than the whole INBOX.
+	// Watch is F-11's gmail.watch value: WatchAll (the default, and what an
+	// empty or unrecognised value resolves to) or WatchInbox, both
+	// case-insensitive. See watchscope.go for what each scope admits and why
+	// the default is no longer INBOX-only.
 	Watch string
 	// QueryWindowDays bounds the F-13 fallback query (default 30 when <= 0).
 	QueryWindowDays int

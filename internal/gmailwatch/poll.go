@@ -124,6 +124,17 @@ func (w *Watcher) processMessage(ctx context.Context, id string) (staged int, er
 	if err != nil {
 		return 0, fmt.Errorf("gmailwatch: messages.get(%s): %w", id, err)
 	}
+	// F-11 watch scope, enforced here and nowhere else. format=raw still
+	// populates LabelIds, so this costs no extra API call. Until v1.8 the
+	// scope was delegated to history.list's labelId parameter, which both
+	// let SENT and DRAFT adds through and dropped imported mail outright —
+	// see watchscope.go.
+	if !w.inScope(gm.LabelIds) {
+		if w.Logf != nil {
+			w.Logf("skip (scope): message %s labels %v outside watch scope %q", id, gm.LabelIds, w.effectiveWatch())
+		}
+		return 0, nil
+	}
 	raw, err := decodeRawMessage(gm.Raw)
 	if err != nil {
 		return 0, fmt.Errorf("gmailwatch: decode raw message %s: %w", id, err)

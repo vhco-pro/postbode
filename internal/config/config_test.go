@@ -24,7 +24,10 @@ func TestLoad_MissingFileReturnsDefaults(t *testing.T) {
 		got  any
 		want any
 	}{
-		{"gmail.watch", cfg.Gmail.Watch, "inbox"},
+		// "all", not "inbox", since v1.11: an INBOX-only scope cannot see mail
+		// that never carries the INBOX label (POP3-fetcher imports), which is
+		// a silent miss. See internal/gmailwatch/watchscope.go.
+		{"gmail.watch", cfg.Gmail.Watch, "all"},
 		{"gmail.query_window_days", cfg.Gmail.QueryWindowDays, 30},
 		{"gmail.poll_interval", cfg.Gmail.PollInterval, 5 * time.Minute},
 		{"gmail.submitted_label", cfg.Gmail.SubmittedLabel, "VH&Co/submitted"},

@@ -66,8 +66,13 @@ type Administration struct {
 
 // Gmail holds the Gmail polling configuration (F-11, F-12, F-13, F-14).
 type Gmail struct {
-	Watch           string // F-11, default "inbox"
-	QueryWindowDays int    // F-13, default 30
+	// Watch is F-11's scope: "all" (default — the whole mailbox except sent,
+	// drafts, trash and spam) or "inbox" (only messages carrying INBOX).
+	// "inbox" was the default until v1.11; it misses mail that never carries
+	// the INBOX label, such as anything Gmail's POP3 fetcher imports with
+	// "Archive incoming messages" on. See internal/gmailwatch/watchscope.go.
+	Watch           string
+	QueryWindowDays int // F-13, default 30
 	PollInterval    time.Duration
 	SubmittedLabel  string // F-14, default "VH&Co/submitted"
 }
@@ -111,7 +116,7 @@ func Default() Config {
 	return Config{
 		Administration: Administration{CompanyNumber: ""},
 		Gmail: Gmail{
-			Watch:           "inbox",
+			Watch:           "all",
 			QueryWindowDays: 30,
 			PollInterval:    5 * time.Minute,
 			SubmittedLabel:  "VH&Co/submitted",

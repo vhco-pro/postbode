@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/googleapi"
@@ -17,12 +16,16 @@ import (
 var ErrHistoryGap = errors.New("gmailwatch: history gap: historyId not found")
 
 // historySync performs the F-12 incremental poll: users.history.list from
-// startHistoryID, scoped to the whole INBOX (F-11, effectiveLabelID) and to
-// messageAdded events only — Postbode only cares about new mail arriving,
-// never about label or deletion history. It returns every added message id
-// (deduplicated across pages, in case a message appears in more than one
-// history record) and the newest historyId seen, ready for persistence into
-// sync_state for the next poll.
+// startHistoryID, restricted to messageAdded events only — Postbode only
+// cares about new mail arriving, never about label or deletion history. It
+// returns every added message id (deduplicated across pages, in case a
+// message appears in more than one history record) and the newest historyId
+// seen, ready for persistence into sync_state for the next poll.
+//
+// It deliberately sends NO labelId parameter. The F-11 watch scope is
+// enforced by Watcher.inScope against the fetched message's real labels
+// instead — see watchscope.go for the live evidence that labelId does not
+// mean what it appears to mean here, and silently dropped imported mail.
 func (w *Watcher) historySync(ctx context.Context, startHistoryID uint64) (msgIDs []string, newHistoryID string, err error) {
 	seen := make(map[string]bool)
 	var latest uint64
@@ -30,7 +33,6 @@ func (w *Watcher) historySync(ctx context.Context, startHistoryID uint64) (msgID
 	call := w.Service.Users.History.List(w.UserID).
 		StartHistoryId(startHistoryID).
 		HistoryTypes("messageAdded").
-		LabelId(w.effectiveLabelID()).
 		Context(ctx)
 
 	err = call.Pages(ctx, func(resp *gmail.ListHistoryResponse) error {
@@ -65,17 +67,4 @@ func (w *Watcher) historySync(ctx context.Context, startHistoryID uint64) (msgID
 		return msgIDs, strconv.FormatUint(startHistoryID, 10), nil
 	}
 	return msgIDs, strconv.FormatUint(latest, 10), nil
-}
-
-// effectiveLabelID maps the F-11 gmail.watch config value to a Gmail system
-// label id. Only "inbox" (the default, case-insensitive) is implemented in
-// P1 — F-11 states the watch scope is the whole INBOX, not a dedicated
-// label; this mapping exists for future reversibility via config, not
-// because P1 supports watching anything else.
-func (w *Watcher) effectiveLabelID() string {
-	watch := w.Config.Watch
-	if watch == "" {
-		watch = "inbox"
-	}
-	return strings.ToUpper(watch)
 }
