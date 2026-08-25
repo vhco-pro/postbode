@@ -69,6 +69,22 @@ func (w *Watcher) Poll(ctx context.Context) (PollResult, error) {
 			if reason, ok := isReauthError(perr); ok {
 				return w.handleReauth(ctx, st, reason)
 			}
+			if isMessageGone(perr) {
+				// The message was listed and then deleted (or purged from
+				// Trash) before we fetched it. It cannot be missed, because
+				// it no longer exists in the mailbox — so skipping it is not
+				// a G-1 silent miss, whereas returning here is a permanent
+				// outage: the error aborts the loop before sync_state is
+				// persisted, so historyId never advances and the very next
+				// poll re-lists the same dead id and fails identically,
+				// forever. Observed in production: one deleted message
+				// wedged the daemon for days while real invoices piled up
+				// unseen behind it.
+				if w.Logf != nil {
+					w.Logf("skip (gone): message %s no longer exists in Gmail (404)", id)
+				}
+				continue
+			}
 			return PollResult{StagedCount: staged}, fmt.Errorf("gmailwatch: poll: process message %s: %w", id, perr)
 		}
 		staged += n
