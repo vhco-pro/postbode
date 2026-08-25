@@ -14,6 +14,15 @@ on:
     paths-ignore:
       - 'README.md'
       - '.gitignore'
+      # SDD artifacts. A spec, plan, ADR or review summary changes no shipped
+      # byte, so a push that only touches them must not cut a release — the
+      # binary would be identical and the tap would churn for nothing.
+      - 'docs/**'
+      - 'plans/**'
+      - 'summaries/**'
+      - 'decisions/**'
+      - 'CLAUDE.md'
+      - 'vega.yaml'
   workflow_dispatch:
 
 jobs:

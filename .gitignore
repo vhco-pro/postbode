@@ -33,3 +33,4 @@ spool/
 *.out
 coverage.*
 .DS_Store
+.claude/worktrees/

@@ -156,4 +156,50 @@ var migrations = []migration{
 			`ALTER TABLE item ADD COLUMN first_failed_at TEXT`,
 		},
 	},
+	{
+		// F-70/NF-15: the per-message consecutive-failure and park state that
+		// bounds how long one message can stall the poll. Persisted rather
+		// than in-memory because a restart resetting the counters would
+		// reintroduce exactly the re-wedge-on-reboot failure mode this
+		// feature exists to remove.
+		//
+		// NO FOREIGN KEY to message(gmail_message_id) — deliberate, and load
+		// bearing (spec §5.2, ADR-004). The single most likely reason to
+		// record a failure is users.messages.get itself failing, which
+		// happens before extract has recorded any message row at all. An FK
+		// here would fail the insert precisely in the case the table exists
+		// to handle.
+		version: 4,
+		stmts: []string{
+			`CREATE TABLE message_failure (
+				gmail_message_id TEXT PRIMARY KEY,
+				failure_count    INTEGER NOT NULL DEFAULT 0,
+				first_failed_at  TEXT NOT NULL,
+				last_failed_at   TEXT NOT NULL,
+				last_error       TEXT,
+				parked_at        TEXT,
+				park_count       INTEGER NOT NULL DEFAULT 0,
+				retry_count      INTEGER NOT NULL DEFAULT 0,
+				next_retry_at    TEXT,
+				notified_at      TEXT
+			)`,
+			// NF-18: the per-poll due-retry lookup is one indexed read.
+			`CREATE INDEX idx_message_failure_next_retry_at ON message_failure(next_retry_at)`,
+		},
+	},
+	{
+		// F-81: the whole-poll stall counter (issue #2). Additive columns on
+		// the existing singleton sync_state row rather than a second table —
+		// this is per-daemon state, not per-message state, and sync_state is
+		// already exactly that. Split from version 4 so a failure applying
+		// one does not leave the other half-applied under a single version
+		// number (applyMigration records versions individually).
+		version: 5,
+		stmts: []string{
+			`ALTER TABLE sync_state ADD COLUMN consecutive_poll_failures INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE sync_state ADD COLUMN first_poll_failure_at TEXT`,
+			`ALTER TABLE sync_state ADD COLUMN last_poll_error TEXT`,
+			`ALTER TABLE sync_state ADD COLUMN poll_stall_notified_at TEXT`,
+		},
+	},
 }

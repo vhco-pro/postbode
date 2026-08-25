@@ -1,6 +1,8 @@
 package gmailwatch
 
 import (
+	"time"
+
 	"github.com/vhco-pro/postbode/internal/extract"
 	"github.com/vhco-pro/postbode/internal/notify"
 	"github.com/vhco-pro/postbode/internal/queue"
@@ -23,6 +25,73 @@ type Config struct {
 	// SubmittedLabel is the exact full label name F-15 resolves (default
 	// SubmittedLabelName when empty).
 	SubmittedLabel string
+
+	// The four F-87 resilience bounds. Each follows the same "<= 0 means
+	// the default" convention QueryWindowDays already uses, so a zero-value
+	// Config is a working Config — which matters because several tests
+	// construct one directly.
+	//
+	// FailureBudget is how many consecutive failures one message may cost
+	// the whole poll before it is parked (F-70, F-72). Default
+	// defaultFailureBudget.
+	FailureBudget int
+	// ParkRetryCooldown is the base interval before a parked message is
+	// automatically retried, doubling per attempt (F-75). Default
+	// defaultParkRetryCooldown.
+	ParkRetryCooldown time.Duration
+	// ParkRetryAttempts bounds those automatic retries (F-75). Default
+	// defaultParkRetryAttempts.
+	ParkRetryAttempts int
+	// PollFailureBudget is how many consecutive non-progressing poll cycles
+	// pass before the daemon escalates (F-81, F-82). Default
+	// defaultPollFailureBudget.
+	PollFailureBudget int
+}
+
+// The F-87 defaults, applied when a Config field is <= 0. They intentionally
+// match internal/config's Default() — a Watcher built by hand in a test and
+// one built from a real config file must behave the same.
+const (
+	defaultFailureBudget     = 3
+	defaultParkRetryCooldown = 6 * time.Hour
+	defaultParkRetryAttempts = 3
+	defaultPollFailureBudget = 3
+)
+
+// now is the Watcher's clock, nil-safe.
+func (w *Watcher) now() time.Time {
+	if w.Clock != nil {
+		return w.Clock().UTC()
+	}
+	return time.Now().UTC()
+}
+
+func (c Config) failureBudget() int {
+	if c.FailureBudget <= 0 {
+		return defaultFailureBudget
+	}
+	return c.FailureBudget
+}
+
+func (c Config) parkRetryCooldown() time.Duration {
+	if c.ParkRetryCooldown <= 0 {
+		return defaultParkRetryCooldown
+	}
+	return c.ParkRetryCooldown
+}
+
+func (c Config) parkRetryAttempts() int {
+	if c.ParkRetryAttempts <= 0 {
+		return defaultParkRetryAttempts
+	}
+	return c.ParkRetryAttempts
+}
+
+func (c Config) pollFailureBudget() int {
+	if c.PollFailureBudget <= 0 {
+		return defaultPollFailureBudget
+	}
+	return c.PollFailureBudget
 }
 
 // Watcher is Postbode's Gmail poller (spec §3.2, F-10…F-19): incremental
@@ -58,6 +127,11 @@ type Watcher struct {
 	UserID string
 	Config Config
 
+	// Clock overrides time.Now().UTC() for the F-75 cooldown and retry-due
+	// computations, so those tests never sleep on wall-clock hours. Nil
+	// means the real clock. Same shape and same reason as uploader.Clock.
+	Clock func() time.Time
+
 	// OAuthConfig, when set, lets F-16's re-auth notification embed a real,
 	// ready-to-open consent URL rather than a generic instruction. The
 	// production daemon sets this to the same *oauth2.Config
@@ -85,4 +159,16 @@ type PollResult struct {
 	// re-authentication is required (F-16). Poll never treats this as a
 	// fatal error — see handleReauth in reauth.go.
 	ReauthNeeded bool
+	// Parked lists the message ids this cycle parked for the FIRST time
+	// (F-72), i.e. exactly the ids that raised a park notification. A cycle
+	// that merely re-parks an already-parked message contributes nothing
+	// here, because nothing new was announced.
+	Parked []string
+	// Retried lists the parked message ids this cycle admitted for another
+	// attempt (F-75, F-77), whether the attempt was due automatically or
+	// forced by `postbode retry`.
+	Retried []string
+	// StallNotified is true when this cycle raised F-82's "the daemon is
+	// alive but not making progress" notification.
+	StallNotified bool
 }

@@ -23,6 +23,31 @@ type Message struct {
 	Subject        string
 	InternalDate   time.Time
 	Raw            []byte
+
+	// ForceReextract bypasses the L1 message-id skip (F-30) for this one
+	// call, and NOTHING else. L2 (SHA-256), L3, L4 and F-44's rejection
+	// memory all remain fully in force, so a re-extraction cannot produce a
+	// second uploadable copy of a document already in the queue: a
+	// byte-identical document links as duplicate_linked exactly as AC-11
+	// requires, and a previously rejected (message, sha256) pair stays
+	// unstageable.
+	//
+	// It exists for exactly one caller: gmailwatch admitting a parked
+	// message for a retry (F-78, decisions/ADR-005-retry-scoped-l1-bypass.md).
+	//
+	// Why it has to exist. ExtractMessage records the message as seen
+	// BEFORE staging its documents (see the spool-before-record fail-safe
+	// below), so a failure in that window leaves a message that is recorded
+	// but has no queue rows. Without this flag every later retry would hit
+	// the L1 check, return Skipped, log "skip (L1)", report success and
+	// clear the park — no error, no log line, nothing to see, and the
+	// invoice gone forever. That is the exact silent miss G-1 forbids, and
+	// it passes casual inspection completely.
+	//
+	// Set it ONLY for an id admitted from the retry set, never for a listed
+	// id, never globally, never stickily — F-30's replay protection is what
+	// stops an F-13 fallback resync from re-extracting the whole mailbox.
+	ForceReextract bool
 }
 
 // ItemResult describes one extracted candidate document and the queue
@@ -138,12 +163,16 @@ func (e *Extractor) ExtractMessage(ctx context.Context, msg Message) (Result, er
 	// writes for a message already recorded. queue.DB.RecordMessageIfNew's
 	// own doc comment is explicit that a message recorded here must never
 	// be re-extracted, regardless of history replay, restart or resync.
-	seen, err := e.db.MessageSeen(ctx, msg.GmailMessageID)
-	if err != nil {
-		return Result{}, fmt.Errorf("extract: ExtractMessage(%s): check L1: %w", msg.GmailMessageID, err)
-	}
-	if seen {
-		return Result{Skipped: true, SkipReason: "L1 message-id already seen"}, nil
+	// ForceReextract skips this check, and only this check — see its doc
+	// comment on Message for why a retried message MUST get past L1.
+	if !msg.ForceReextract {
+		seen, err := e.db.MessageSeen(ctx, msg.GmailMessageID)
+		if err != nil {
+			return Result{}, fmt.Errorf("extract: ExtractMessage(%s): check L1: %w", msg.GmailMessageID, err)
+		}
+		if seen {
+			return Result{Skipped: true, SkipReason: "L1 message-id already seen"}, nil
+		}
 	}
 
 	candidates, warnings := walkMIME(msg.Raw)
@@ -192,10 +221,15 @@ func (e *Extractor) ExtractMessage(ctx context.Context, msg Message) (Result, er
 		}
 		return Result{}, fmt.Errorf("extract: ExtractMessage(%s): record message: %w", msg.GmailMessageID, err)
 	}
-	if alreadySeen {
+	if alreadySeen && !msg.ForceReextract {
 		// Lost a race with a concurrent extraction of the same message:
 		// clean up what this call just spooled and defer to whichever
 		// call recorded the message first.
+		//
+		// A forced re-extraction reaches here on EVERY attempt — the row it
+		// is "racing" is the one its own earlier, failed attempt wrote — so
+		// this branch must not fire for it, or the bypass above would be
+		// undone three lines later and the silent miss would survive.
 		for _, s := range spooled {
 			_ = e.spooler.Remove(s.path)
 		}
