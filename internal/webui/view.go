@@ -3,7 +3,9 @@ package webui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/vhco-pro/postbode/internal/queue"
 )
@@ -30,7 +32,38 @@ type itemView struct {
 	// (F-36, AC-14): Approve is never offered until the explicit override
 	// action runs, which is a separate control from Approve itself.
 	NeedsPeppolOverride bool
+
+	// Received is when the mail actually arrived in Gmail (the message's
+	// internalDate), in local time — the only date that tells a reviewer
+	// whether an item is a fresh invoice or a months-old one. Zero when the
+	// message row can't be read.
+	Received time.Time
+	// ReceivedText renders Received, or "unknown" if it is zero.
+	ReceivedText string
+	// ReceivedAge is Received relative to now ("3 days ago"), empty when
+	// Received is zero.
+	ReceivedAge string
+	// Stale is true when the mail has been sitting for longer than
+	// staleAfter — it is what marks the old backlog apart from today's post
+	// at a glance.
+	Stale bool
+	// StagedText renders when Postbode itself picked the document up. It is
+	// deliberately separate from ReceivedText: after a daemon outage a whole
+	// backlog stages at the same instant, so staged time says nothing about
+	// how old the invoices are.
+	StagedText string
 }
+
+// staleAfter is how old received mail has to be before the queue calls it
+// out. A week is well past the point where an unreviewed purchase invoice
+// is normal, and comfortably clear of the 48h `postbode status` already
+// reports on.
+const staleAfter = 7 * 24 * time.Hour
+
+// timestampLayout is how every absolute time in the queue is rendered:
+// unambiguous about the month (no 08/12-vs-12/08 reading), no timezone
+// noise, since these are always shown in the reviewer's own local time.
+const timestampLayout = "2 Jan 2006 15:04"
 
 // approvable reports whether item may be approved from the UI (AC-7): it
 // must be staged, and must carry neither needs_manual_handling nor
@@ -53,6 +86,8 @@ func (s *Server) buildItemView(ctx context.Context, item *queue.Item) itemView {
 		Item:                item,
 		Approvable:          approvable(item),
 		NeedsPeppolOverride: item.Status == queue.StatusSuppressedPeppol,
+		ReceivedText:        "unknown",
+		StagedText:          item.StagedAt.Local().Format(timestampLayout),
 	}
 
 	var domain string
@@ -60,6 +95,13 @@ func (s *Server) buildItemView(ctx context.Context, item *queue.Item) itemView {
 		v.Sender = msg.From
 		v.Subject = msg.Subject
 		domain = vendorDomain(msg.From)
+		if !msg.InternalDate.IsZero() {
+			now := time.Now()
+			v.Received = msg.InternalDate.Local()
+			v.ReceivedText = v.Received.Format(timestampLayout)
+			v.ReceivedAge = humanAge(now.Sub(msg.InternalDate))
+			v.Stale = now.Sub(msg.InternalDate) >= staleAfter
+		}
 	}
 
 	if item.NeedsManualHandling {
@@ -82,6 +124,53 @@ func (s *Server) buildItemView(ctx context.Context, item *queue.Item) itemView {
 	}
 
 	return v
+}
+
+// sortByReceived orders the rendered queue oldest mail first, stably, with
+// items whose received date is unknown last.
+//
+// queue.ListReviewable orders by staged_at, which reads as "oldest first"
+// only while the daemon is keeping up. After any outage a whole backlog
+// stages within the same second, collapsing that order into Gmail's listing
+// order — which is arbitrary from a reviewer's point of view. Received date
+// is the one ordering that stays meaningful either way.
+func sortByReceived(items []itemView) {
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := items[i].Received, items[j].Received
+		if a.IsZero() != b.IsZero() {
+			return b.IsZero()
+		}
+		return a.Before(b)
+	})
+}
+
+// humanAge renders d as the coarse, skimmable phrase a reviewer reads next
+// to a date ("3 days ago"). Precision past the leading unit is noise here:
+// the exact timestamp is right beside it, and the only question this answers
+// is "is this new post or backlog?".
+//
+// A negative d (mail dated in the future — clock skew, or a sender with a
+// wrong clock) renders "just now" rather than a nonsensical "-2 days ago".
+func humanAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return plural(int(d.Minutes()), "minute") + " ago"
+	case d < 24*time.Hour:
+		return plural(int(d.Hours()), "hour") + " ago"
+	case d < 60*24*time.Hour:
+		return plural(int(d.Hours()/24), "day") + " ago"
+	default:
+		return plural(int(d.Hours()/24/30), "month") + " ago"
+	}
+}
+
+func plural(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit
+	}
+	return fmt.Sprintf("%d %ss", n, unit)
 }
 
 // duplicateDetail renders the "possible duplicate of #N (status: X, uuid:

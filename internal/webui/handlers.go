@@ -37,6 +37,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	for _, item := range items {
 		data.Items = append(data.Items, s.buildItemView(ctx, item))
 	}
+	sortByReceived(data.Items)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := pageTemplate.ExecuteTemplate(w, "index.html", data); err != nil {

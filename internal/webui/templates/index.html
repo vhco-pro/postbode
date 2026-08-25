@@ -47,6 +47,16 @@
   .orig { color:var(--ink-faint); font-size:.85rem; font-weight:400; }
   .meta { color:var(--ink-dim); font-size:.9rem; margin-top:.3rem; word-break:break-word; }
   .meta .k { color:var(--ink-faint); }
+  /* The received date is the one bit of metadata that answers "is this new
+     post or old backlog?", so the age reads louder than the row around it
+     and turns amber once the mail has been sitting for a week. */
+  .meta .age {
+    display:inline-block; margin-left:.35rem; border-radius:6px;
+    padding:.05rem .42rem; font-size:.8rem; font-weight:560;
+    background:rgba(255,255,255,.08); color:var(--ink);
+  }
+  .meta .age.stale { background:rgba(245,181,68,.16); color:#ffdd9e; }
+  .meta .staged { color:var(--ink-faint); font-size:.82rem; margin-left:.25rem; }
 
   .badges { margin-top:.6rem; display:flex; flex-wrap:wrap; gap:.35rem; }
   .badge {
@@ -134,6 +144,11 @@
     </div>
     <div class="meta"><span class="k">From</span> {{.Sender}}</div>
     <div class="meta"><span class="k">Subject</span> {{.Subject}}</div>
+    <div class="meta">
+      <span class="k">Received</span> {{.ReceivedText}}
+      {{if .ReceivedAge}}<span class="age{{if .Stale}} stale{{end}}">{{.ReceivedAge}}</span>{{end}}
+      <span class="staged">· staged {{.StagedText}}</span>
+    </div>
 
     <div class="badges">
       <span class="badge status">{{.Item.Status}}</span>
