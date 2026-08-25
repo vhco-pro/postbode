@@ -135,6 +135,69 @@ func TestParkCycleSuppressesTheStallNotification(t *testing.T) {
 	}
 }
 
+// A cycle that parks one message AND then aborts under budget on another is
+// the only way to reach F-83's rollback branch: it both suppresses the stall
+// notification and consumes the episode's one escalation.
+//
+// The rollback exists so that consumption is undone — otherwise a genuine,
+// ongoing stall would stay silent forever, having spent its notification on
+// a cycle that never sent one. Found by a coverage gap in review: the branch
+// was correct but untested, which is how it would have rotted.
+func TestSuppressedStallNotificationIsNotConsumed(t *testing.T) {
+	ctx := context.Background()
+
+	// msg-park fails once and parks (budget 1 for previously-parked is not
+	// yet relevant; this is its first park). msg-block fails forever too,
+	// and because it has never been parked it gets the full budget — so the
+	// cycle parks one message and then aborts on the other.
+	m := newScriptedMailbox(t, []string{"msg-park", "msg-block"}, func(id string, _ int) (*gmail.Message, error) {
+		return nil, apiError(http.StatusInternalServerError, "broken: "+id)
+	})
+	// Budget 2, so the two messages fall out of step: msg-park is charged
+	// first on every cycle and reaches the budget one cycle earlier than
+	// msg-block, which is what produces a cycle that parks AND aborts.
+	p := newParkTestWatcher(t, m, 2)
+	p.w.Config.PollFailureBudget = 2
+
+	// Cycle 1: msg-park fails (1/2) and aborts the cycle. msg-block is
+	// never reached. Poll failure count 1, under its budget, so silent.
+	if _, err := p.w.Poll(ctx); err == nil {
+		t.Fatal("cycle 1 returned nil")
+	}
+	if n := len(stallNotifications(p.notifier.All())); n != 0 {
+		t.Fatalf("cycle 1 notified (%d); it is under the poll budget", n)
+	}
+
+	// Cycle 2, the mixed one: msg-park hits 2/2 and PARKS, the loop
+	// continues, msg-block fails at 1/2 and aborts. So the cycle both
+	// parked something and failed — crossing the poll budget at the same
+	// moment. F-83 suppresses the stall notification here.
+	res, err := p.w.Poll(ctx)
+	if err == nil {
+		t.Fatal("cycle 2 returned nil; it should have aborted on msg-block")
+	}
+	if len(res.Parked) != 1 || res.Parked[0] != "msg-park" {
+		t.Fatalf("cycle 2 Parked = %v, want [msg-park] — the mixed park+abort case was not reproduced", res.Parked)
+	}
+	if n := len(stallNotifications(p.notifier.All())); n != 0 {
+		t.Fatalf("cycle 2 sent %d stall notification(s); F-83 suppresses them on a cycle that parked", n)
+	}
+
+	// Now break the LISTING itself: a genuine whole-poll stall, unrelated to
+	// any message. If the earlier suppressed escalation had been left
+	// consumed, this would never announce itself.
+	m.srv.HistoryFunc = func(uint64, string) (*gmail.ListHistoryResponse, error) {
+		return nil, apiError(http.StatusServiceUnavailable, "backend unavailable")
+	}
+	if _, err := p.w.Poll(ctx); err == nil {
+		t.Fatal("the listing-failure poll returned nil")
+	}
+
+	if n := len(stallNotifications(p.notifier.All())); n != 1 {
+		t.Errorf("stall notifications = %d after a genuine stall, want 1 — a suppressed escalation must not consume the episode's one notification", n)
+	}
+}
+
 // Verifies: Plan: Resilient poll — per-message failure budget and stall escalation, Criterion: "AC-42: With a tiny park_retry_cooldown and park_retry_attempts: 2 (injected clock), a parked message whose failure persists is retried automatically twice and no more; each retry re-parks on the first failure without aborting the poll — every one of those cycles still persists sync_state and still processes the messages behind it"
 func TestAutomaticRetryIsBoundedAndNeverRewedgesThePoll(t *testing.T) {
 	ctx := context.Background()
@@ -245,7 +308,7 @@ func TestAutomaticRetryRecoversAHealedMessage(t *testing.T) {
 	}
 }
 
-// Verifies: Plan: Resilient poll — per-message failure budget and stall escalation, Criterion: "AC-41: postbode retry <id> on a parked message exits 0, clears parked_at, and the next poll reprocesses that message and stages its documents even though history_id has advanced past it and no listing returns it."
+// Verifies: Plan: Resilient poll — per-message failure budget and stall escalation, Criterion: "AC-41: postbode retry <id> on a parked message exits 0, makes the message immediately due for another attempt, and the next poll reprocesses that message and stages its documents even though history_id has advanced past it and no listing returns it."
 func TestManualRetryReachesAMessageNoListingReturns(t *testing.T) {
 	ctx := context.Background()
 	raw := rawMessage(t, "rfc2047-filename.eml")

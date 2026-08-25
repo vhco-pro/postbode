@@ -23,7 +23,7 @@ func park(t *testing.T, db *queue.DB, id string) {
 	}
 }
 
-// Verifies: Plan: Resilient poll — per-message failure budget and stall escalation, Criterion: "AC-41: postbode retry <id> on a parked message exits 0, clears parked_at ... postbode retry --all unparks every parked message and reports the count."
+// Verifies: Plan: Resilient poll — per-message failure budget and stall escalation, Criterion: "AC-41: postbode retry <id> on a parked message exits 0, makes the message immediately due for another attempt ... postbode retry --all unparks every parked message and reports the count."
 func TestRetryUnparksOneMessage(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)

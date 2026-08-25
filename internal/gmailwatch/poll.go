@@ -25,6 +25,13 @@ import (
 func (w *Watcher) Poll(ctx context.Context) (PollResult, error) {
 	st, err := w.DB.GetSyncState(ctx)
 	if err != nil {
+		// Deliberately NOT routed through failPoll, and the one exit that
+		// is not. Recording a poll failure begins with this same read, so a
+		// database too broken to read sync_state is too broken to record
+		// that fact — failPoll would fail identically and replace a precise
+		// error with a compound one. This is not a hole in NF-14 either: a
+		// database that cannot be read is not a message failing, and no
+		// counting scheme can survive its own storage being unavailable.
 		return PollResult{}, fmt.Errorf("gmailwatch: poll: read sync_state: %w", err)
 	}
 

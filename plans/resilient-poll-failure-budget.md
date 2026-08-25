@@ -1,6 +1,6 @@
 ---
-status: review
-status_description: "All 9 phases implemented and green. 54 new tests across queue/config/gmailwatch/extract/cli/cmd/webui plus 3 E2E scenarios. make test, go vet ./... and make test-nonet all pass; golangci-lint 0 issues. AC-34..AC-47 covered. Two deviations from plan recorded in the Notes section. Ready for review."
+status: complete
+status_description: "Reviewed 2026-08-25 against feature/resilient-poll-failure-budget (7d46258). All 14 criteria AC-34..AC-47 PASS with executed-test evidence; make test, go vet ./..., make test-nonet (forced -count=1) and make lint all green; 324 tests pass, 0 fail, 0 skip; 10/10 TestE2EDry_* pass. Both deleted_message_test.go guards pass unmodified. L1 bypass, retry bounds, no-FK and v3->v5 migration probed adversarially and hold. Four non-blocking findings recorded in summaries/resilient-poll-failure-budget.md: (1) the F-83 rollback branch at poll.go:280-286 has zero test coverage, (2) AC-41's 'clears parked_at' clause contradicts the plan's own DueRetries design and is correctly unimplemented, (3) the plan-declared v3->v5 migration test was never written (verified manually instead), (4) the GetSyncState failure path skips failPoll."
 description: "9-phase build of the per-message failure budget, park-and-continue poll loop, bounded retry admission with a retry-scoped L1 bypass, whole-poll stall escalation, and the `postbode retry` / `postbode status` ops surfaces."
 spec: docs/specs/resilient-poll-failure-budget.spec.md
 author: "SDD Planner (automated), run by michielvha <michielvh@outlook.com>"
@@ -237,7 +237,7 @@ Ids are the spec's §7 ids, unchanged. Every one is mapped to at least one row i
 - [x] **AC-38:** With the fake OAuth server returning `invalid_grant` mid-loop, behaviour is byte-for-byte AC-20's: `handleReauth` runs, exactly one re-auth notification is sent, no queue row changes, no `message_failure` row is created for the in-flight message, and no message is parked. *(F-73a, NF-19)*
 - [x] **AC-39:** Parking a message invokes `notify.Fake` **exactly once**, with a message containing the `gmail_message_id`, the failure count and the truncated reason. Second and third polls that re-encounter the same parked message before its cooldown invoke it **zero** further times. `osascript` is never executed. *(F-74)*
 - [x] **AC-40:** With one parked message, `postbode status` output contains a `parked messages:` section listing that id, its failure count, its last error and its last attempt time, plus either an auto-retry timestamp or `auto-retry exhausted` with the exact `postbode retry <id>` command. With none parked it prints `parked messages:  0` rather than being omitted. Asserted against `cli.FormatStatus` with an injected `now`. *(F-85, F-84, G-74)*
-- [x] **AC-41:** `postbode retry <id>` on a parked message exits 0, clears `parked_at`, and the **next poll reprocesses that message and stages its documents even though `history_id` has advanced past it and no listing returns it**. `postbode retry --all` unparks every parked message and reports the count. `postbode retry` with no argument exits **2** and changes nothing; `postbode retry <unknown-id>` exits non-zero naming the id. The write succeeds while a second connection holds the same database open. *(F-77, §5.3, §6.1)*
+- [x] **AC-41:** `postbode retry <id>` on a parked message exits 0, makes the message immediately due for another attempt, and the **next poll reprocesses that message and stages its documents even though `history_id` has advanced past it and no listing returns it**. `postbode retry --all` unparks every parked message and reports the count. `postbode retry` with no argument exits **2** and changes nothing; `postbode retry <unknown-id>` exits non-zero naming the id. The write succeeds while a second connection holds the same database open. *(F-77, §5.3, §6.1)*
 - [x] **AC-42:** With a tiny `park_retry_cooldown` and `park_retry_attempts: 2` (injected clock), a parked message whose failure persists is retried automatically twice and no more; each retry **re-parks on the first failure without aborting the poll** — every one of those cycles still persists `sync_state` and still processes the messages behind it — and after the second retry the message reports `auto-retry exhausted` while remaining in `ListParkedMessages`. A parked message whose failure has healed is processed successfully on its first automatic retry, stages its documents, and its `message_failure` row disappears. *(F-75, F-76, F-79)*
 - [x] **AC-43:** With `history.list` scripted to `503` on every call and `poll_failure_budget: 3`: polls 1–2 notify nothing; poll 3 invokes the notifier **exactly once** naming the consecutive failure count and the last error; polls 4–10 invoke it **zero** further times; `postbode status` prints `poll health: NOT MAKING PROGRESS` naming the count and the episode start. Once `history.list` succeeds, the counter resets, status prints `poll health: ok`, and a subsequent new stall episode notifies again exactly once. Separately: a purely per-message stall that ends in a park emits the **park** notification only — never both — for that cycle. *(F-81, F-82, F-83, F-84, G-73)*
 - [x] **AC-44:** Parked state, failure counts, retry schedules and the notify-once markers survive closing and reopening the database: reopening does not re-notify, does not reset any counter, and does not restart the cooldown from zero. A prune/retention pass with `retention_days` set to prune-everything leaves every parked message present and reported. *(NF-15, F-79, G-71)*
@@ -668,3 +668,51 @@ messages no write at all.
   half is deliberate: it proves the F-78 hazard is real and still reachable,
   so the test cannot quietly become vacuous if the record/stage ordering
   changes.
+
+---
+
+## Post-Review Fixes (2026-08-25)
+
+The reviewer raised four non-blocking findings. Three were fixed rather than
+deferred; the fourth was resolved as unfixable-by-design and documented.
+
+**Finding 1 — F-83 rollback branch had zero coverage.** Now covered by
+`TestSuppressedStallNotificationIsNotConsumed`
+(`internal/gmailwatch/stall_test.go`). The first attempt at this test passed
+without reaching the branch at all — both messages parked, so the cycle
+succeeded and never entered `failPoll`. Reaching it needs a cycle that parks
+one message *and* aborts under budget on another, which requires the two
+messages to be out of step: budget 2, the poison message charged first. Now
+verified by coverage profile: `poll.go:280-282` executes once (was zero).
+
+**Finding 2 — AC-41 contradicted the design.** "clears `parked_at`" is not
+merely unimplemented, it is unimplementable: `DueRetries` selects on
+`parked_at IS NOT NULL`, so clearing it would make the message permanently
+un-retryable — the opposite of what `postbode retry` is for. Fixed at
+source: the clause now reads "makes the message immediately due for another
+attempt" in **both** the spec (§7 AC-41 and the §5.2 lifecycle line) and this
+plan, and the two `// Verifies:` comments quoting it were updated to match.
+Recorded here as **deviation 3**, which the implementation should have
+recorded at the time.
+
+**Finding 3 — no v3→v5 migration regression guard.** Added
+`TestVersion3DatabaseMigratesForwardWithoutLosingData`
+(`internal/queue/migration_v3_forward_test.go`). It builds a real
+schema-version-3 database with rows in it — which is what every existing
+installation actually is, since that is what the shipped 0.5.0 binary
+creates — and runs the real migration runner over it. It asserts data
+survives, `history_id` is preserved, the new columns default without
+inventing a phantom stall, and `message_failure` accepts a row for a message
+that has no `message` row (the no-foreign-key case ADR-004 turns on).
+
+**Finding 4 — `GetSyncState` failure skips `failPoll`.** Not fixed; it
+cannot be. Recording a poll failure begins with the same `GetSyncState`
+read, so a database too broken to read sync_state is too broken to record
+that it failed — routing it through `failPoll` would fail identically and
+replace a precise error with a compound one. Documented in place at
+`internal/gmailwatch/poll.go`, including why this is not a hole in NF-14: a
+database that cannot be read is not a message failing, and no counting
+scheme survives its own storage being unavailable.
+
+Gate after these fixes: `go test ./...` **548 pass / 0 fail**, `go vet ./...`
+clean, `golangci-lint` 0 issues.
