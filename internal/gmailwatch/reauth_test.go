@@ -87,6 +87,26 @@ func TestPollSurvivesInvalidGrantAndResumesWithoutRestart(t *testing.T) {
 		t.Errorf("items after a reauth-blocked poll = %d, want 0", len(items))
 	}
 
+	// Verifies: Plan: Resilient poll — per-message failure budget and stall escalation, Criterion: "AC-38: ... no message_failure row is created for the in-flight message, and no message is parked."
+	//
+	// A re-auth condition is not a property of any one message: every
+	// message would fail identically, so charging one of them would park
+	// perfectly healthy mail the moment a token expired.
+	parkedAfterReauth, err := db.ListParkedMessages(ctx)
+	if err != nil {
+		t.Fatalf("ListParkedMessages: %v", err)
+	}
+	if len(parkedAfterReauth) != 0 {
+		t.Errorf("a re-auth condition parked %d message(s), want 0", len(parkedAfterReauth))
+	}
+	failedAfterReauth, err := db.FailedIDs(ctx)
+	if err != nil {
+		t.Fatalf("FailedIDs: %v", err)
+	}
+	if len(failedAfterReauth) != 0 {
+		t.Errorf("a re-auth condition charged %d message(s) against their budget, want 0", len(failedAfterReauth))
+	}
+
 	// "Polling resumes without restart once auth succeeds": swap in a
 	// working (unauthenticated fake, matching how labels_test.go builds
 	// its service) client on the SAME Watcher — no restart, no rebuild —

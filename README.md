@@ -69,10 +69,50 @@ The `postbode` binary is a single static executable with subcommands
 | `postbode status` | Print queue counts, last poll time, last upload uuid, Gmail token age, items stuck > 48h. |
 | `postbode status --find <term>` | "Is this already uploaded?" — one-line verdict by vendor, filename, subject, invoice number or amount. |
 | `postbode log [--since <dur>]` | Print the local decision and upload log (e.g. `--since 24h`). |
+| `postbode retry <message-id>` | Reprocess one message the poll set aside. |
+| `postbode retry --all` | Reprocess every parked message. |
 | `postbode version` | Print the version, commit and Go runtime the binary was built with. |
 
 The review UI is bound to `127.0.0.1` only and requires a session token; it
 is never reachable from the LAN.
+
+## When a message cannot be processed
+
+A message that fails repeatedly is **parked**: the poll stops waiting for it
+and carries on, so the rest of your mail keeps flowing. This exists because
+it once did not — in August 2026 a single deleted message wedged the daemon
+for three days while real invoices piled up in Gmail, unseen.
+
+Parking is loud, bounded and reversible:
+
+- You get one macOS notification per parked message — never a stream.
+- `postbode status` has a `parked messages:` section listing the id, failure
+  count, last error, last attempt and the next automatic retry.
+- Parked messages are retried automatically a few times, with a widening
+  cooldown; `postbode retry <id>` forces one immediately.
+- **Nothing ever ages out.** A parked message stays reported until it is
+  processed or you act on it. A 90-day-old park is not stale, it is
+  unresolved.
+
+A parked message never appears in the review queue: extraction is precisely
+what failed, so there is no document to review.
+
+If the daemon stops making progress altogether — Gmail unreachable, the
+database unwritable — it says so once, and `postbode status` prints
+`poll health: NOT MAKING PROGRESS` rather than leaving you to subtract
+timestamps.
+
+Four `gmail:` config keys bound all of this:
+
+| Key | Default | Bounds |
+|---|---|---|
+| `failure_budget` | `3` | Consecutive failures one message may cost the whole poll before it is parked. At the default 5m poll interval, ~15 minutes. |
+| `park_retry_cooldown` | `6h` | Wait before the first automatic retry of a parked message. Doubles per attempt, capped at 24h. |
+| `park_retry_attempts` | `3` | Automatic retries per park. After these, the message stays parked and reported but generates no further automatic work. |
+| `poll_failure_budget` | `3` | Consecutive non-progressing polls before the daemon announces it is stalled. |
+
+All four must be greater than zero; a zero or negative value is rejected at
+startup with the offending line number, and the daemon does not start.
 
 ## Development
 

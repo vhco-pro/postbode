@@ -94,6 +94,68 @@ type Item struct {
 	FirstFailedAt *time.Time
 }
 
+// MessageFailure is one message's consecutive-failure and park state
+// (F-70…F-79), owned by gmailwatch. It is the inbound-side counterpart to
+// F-51's outbound upload retry budget on Item, and deliberately reuses that
+// vocabulary rather than inventing a second one:
+//
+//	Item (F-51, uploads)   MessageFailure (F-70, inbound)
+//	FirstFailedAt          FirstFailedAt   anchors the episode, set once
+//	RetryCount             RetryCount      attempts spent against the bound
+//	NextRetryAt            NextRetryAt     when the next attempt is due
+//	LastError              LastError       truncated, redacted
+//
+// A row exists only while a message is failing or parked: successful
+// processing deletes it outright, which is how FailureCount resets. See
+// decisions/ADR-004-park-and-continue-with-bounded-auto-retry.md.
+type MessageFailure struct {
+	GmailMessageID string
+	// FailureCount is consecutive failures in the current episode. It
+	// reaches Config.FailureBudget exactly once per park.
+	FailureCount  int
+	FirstFailedAt time.Time
+	LastFailedAt  time.Time
+	// LastError is truncated to MaxErrorLen and carries no message body or
+	// attachment content (F-65, NF-17).
+	LastError string
+	// ParkedAt is nil while the message is merely failing. Non-nil means the
+	// poll no longer stops for it.
+	ParkedAt *time.Time
+	// ParkCount is how many times this message has been parked, ever. It is
+	// never reset by a retry: >= 1 is what puts a message on F-76's
+	// effective budget of 1, so a retry can never re-wedge the poll.
+	ParkCount int
+	// RetryCount is automatic attempts spent against ParkRetryAttempts.
+	// Never reset by a retry, for the same reason as ParkCount.
+	RetryCount int
+	// NextRetryAt is when the next automatic attempt becomes due. Nil means
+	// the automatic attempts are exhausted: the message stays parked and
+	// stays reported (F-79), and only `postbode retry` can schedule another.
+	NextRetryAt *time.Time
+	// NotifiedAt is F-74's notify-once marker, persisted so a restart does
+	// not re-notify about an already-known park.
+	NotifiedAt *time.Time
+}
+
+// Parked reports whether this message has been parked, i.e. whether the poll
+// loop now continues past it rather than aborting the cycle.
+func (f MessageFailure) Parked() bool { return f.ParkedAt != nil }
+
+// MaxErrorLen bounds every persisted error string (NF-17), so a pathological
+// error — a server echoing a whole request back, say — cannot bloat the
+// database or overflow a macOS notification.
+const MaxErrorLen = 500
+
+// TruncateError clamps s to MaxErrorLen runes, marking that it was cut so a
+// reader never mistakes a truncated error for the whole story.
+func TruncateError(s string) string {
+	r := []rune(s)
+	if len(r) <= MaxErrorLen {
+		return s
+	}
+	return string(r[:MaxErrorLen]) + "… (truncated)"
+}
+
 // VendorTeaching mirrors the vendor_teaching entity (spec §5.2), owned by
 // queue. Populated from Phase 12 onward (L4); the table exists from Phase 4.
 type VendorTeaching struct {
@@ -119,7 +181,31 @@ type SyncState struct {
 	// gmailwatch.Watcher.RecordTokenIssued. This is how F-17's "re-auth
 	// needed" flag is exposed through sync_state for Phase 10 to print.
 	LastAuthError string
+
+	// ConsecutivePollFailures counts poll cycles that ended WITHOUT
+	// persisting sync_state (F-81). That predicate — not "returned an
+	// error" — is what makes one counter cover history.list failing, the
+	// F-13 fallback failing, SaveSyncState itself failing, and F-71's
+	// under-budget per-message abort. Reset to zero by any poll that
+	// persists.
+	ConsecutivePollFailures int
+	// FirstPollFailureAt anchors the current stall episode; nil when
+	// healthy.
+	FirstPollFailureAt *time.Time
+	// LastPollError is the truncated, redacted error from the most recent
+	// failed poll.
+	LastPollError string
+	// PollStallNotifiedAt is F-82's notify-once marker for the current
+	// episode, persisted so a restart mid-stall does not re-notify. Cleared
+	// by the poll that ends the episode, so a LATER stall is a new episode
+	// and does notify again.
+	PollStallNotifiedAt *time.Time
 }
+
+// PollHealthy reports whether the daemon is making progress: no consecutive
+// poll failures recorded. Used by `postbode status` to state poll health in
+// words rather than leaving the reader to subtract timestamps (F-84).
+func (s SyncState) PollHealthy() bool { return s.ConsecutivePollFailures == 0 }
 
 // DecisionLogEntry mirrors the decision_log entity (spec §5.2), owned by
 // rules. The table exists from Phase 4; rules (Phase 6) populates it.

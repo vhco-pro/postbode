@@ -39,6 +39,8 @@ commands:
   status                  print queue counts, last poll, last upload uuid, token age, stuck items
   status --find <term>    "is this already uploaded?" one-line verdict (vendor/filename/subject/etc.)
   log [--since <dur>]     print the local decision and upload log (e.g. --since 24h)
+  retry <message-id>      reprocess one message the poll set aside (see "parked messages" in status)
+  retry --all             reprocess every parked message
   version                 print the postbode version, commit and go runtime version
 `
 
@@ -69,6 +71,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runStatus(args[1:], stdout, stderr)
 	case "log":
 		return runLog(args[1:], stdout, stderr)
+	case "retry":
+		return runRetry(args[1:], stdout, stderr)
 	case "version":
 		return runVersion(stdout)
 	case "-h", "--help", "help":

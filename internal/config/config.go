@@ -75,6 +75,23 @@ type Gmail struct {
 	QueryWindowDays int // F-13, default 30
 	PollInterval    time.Duration
 	SubmittedLabel  string // F-14, default "VH&Co/submitted"
+
+	// FailureBudget is F-70/F-72: how many consecutive failures one message
+	// is allowed to cost the whole poll before it is parked and the loop
+	// moves on. Default 3, which at the default 5m PollInterval bounds a
+	// single bad message to roughly 15 minutes of stalled mailbox.
+	FailureBudget int
+	// ParkRetryCooldown is F-75's base interval before a parked message is
+	// automatically retried. Doubles per attempt, capped at 24h. Default 6h.
+	ParkRetryCooldown time.Duration
+	// ParkRetryAttempts is F-75's bound on automatic retries. After this
+	// many, the message stays parked and stays reported but generates no
+	// further automatic work — only `postbode retry` can schedule another.
+	// Default 3.
+	ParkRetryAttempts int
+	// PollFailureBudget is F-81/F-82: how many consecutive poll cycles may
+	// fail to make progress before the daemon says so out loud. Default 3.
+	PollFailureBudget int
 }
 
 // Vendors holds vendor-level overrides (F-36).
@@ -116,10 +133,14 @@ func Default() Config {
 	return Config{
 		Administration: Administration{CompanyNumber: ""},
 		Gmail: Gmail{
-			Watch:           "all",
-			QueryWindowDays: 30,
-			PollInterval:    5 * time.Minute,
-			SubmittedLabel:  "VH&Co/submitted",
+			Watch:             "all",
+			QueryWindowDays:   30,
+			PollInterval:      5 * time.Minute,
+			SubmittedLabel:    "VH&Co/submitted",
+			FailureBudget:     3,
+			ParkRetryCooldown: 6 * time.Hour,
+			ParkRetryAttempts: 3,
+			PollFailureBudget: 3,
 		},
 		Vendors:       Vendors{KnownPeppol: nil},
 		RetentionDays: 30,
@@ -341,10 +362,14 @@ func decodeAdministration(node *yaml.Node, a *Administration) error {
 
 func decodeGmail(node *yaml.Node, g *Gmail) error {
 	pairs, err := mappingPairs(node, map[string]bool{
-		"watch":             true,
-		"query_window_days": true,
-		"poll_interval":     true,
-		"submitted_label":   true,
+		"watch":               true,
+		"query_window_days":   true,
+		"poll_interval":       true,
+		"submitted_label":     true,
+		"failure_budget":      true,
+		"park_retry_cooldown": true,
+		"park_retry_attempts": true,
+		"poll_failure_budget": true,
 	})
 	if err != nil {
 		return err
@@ -377,7 +402,58 @@ func decodeGmail(node *yaml.Node, g *Gmail) error {
 		}
 		g.SubmittedLabel = s
 	}
+
+	// The four resilience bounds (F-87). All four are rejected at or below
+	// zero, with the offending line number (F-29). This is not pedantry: a
+	// `failure_budget: 0` would park every message on its first hiccup and
+	// quietly turn a typo into a G-1 hazard, and a zero cooldown would spin
+	// a broken message through the poll on every tick.
+	if v, ok := pairs["failure_budget"]; ok {
+		n, err := decodePositiveInt(v, "failure_budget")
+		if err != nil {
+			return err
+		}
+		g.FailureBudget = n
+	}
+	if v, ok := pairs["park_retry_cooldown"]; ok {
+		d, err := decodeDuration(v)
+		if err != nil {
+			return err
+		}
+		if d <= 0 {
+			return errAt(v.Line, "park_retry_cooldown must be greater than zero, got %s", d)
+		}
+		g.ParkRetryCooldown = d
+	}
+	if v, ok := pairs["park_retry_attempts"]; ok {
+		n, err := decodePositiveInt(v, "park_retry_attempts")
+		if err != nil {
+			return err
+		}
+		g.ParkRetryAttempts = n
+	}
+	if v, ok := pairs["poll_failure_budget"]; ok {
+		n, err := decodePositiveInt(v, "poll_failure_budget")
+		if err != nil {
+			return err
+		}
+		g.PollFailureBudget = n
+	}
 	return nil
+}
+
+// decodePositiveInt is decodeInt plus F-87's "> 0" rule, keeping the
+// offending line number in the message the way every other config error
+// does (F-29).
+func decodePositiveInt(node *yaml.Node, key string) (int, error) {
+	n, err := decodeInt(node)
+	if err != nil {
+		return 0, err
+	}
+	if n <= 0 {
+		return 0, errAt(node.Line, "%s must be greater than zero, got %d", key, n)
+	}
+	return n, nil
 }
 
 func decodeVendors(node *yaml.Node, v *Vendors) error {

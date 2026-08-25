@@ -42,6 +42,21 @@ automatic rejection.
 **Every upload requires human approval.** There is no auto-approve code path in P1, and none should
 be added.
 
+**Parked messages are never aged out, never auto-approved, and never rendered in the review UI.**
+A message that exhausts its failure budget is set aside so the poll can continue (F-70…F-79) — it is
+not discarded. No prune, retention or tidy-up path may touch `message_failure`: forgetting a parked
+message IS the silent miss the mechanism exists to prevent. It leaves the parked set only by being
+processed successfully or by an explicit human `postbode retry`, which is the only manual recovery
+path. It stays out of the review UI because extraction is precisely what failed, so there is no
+document to review.
+
+**The L1 bypass is retry-scoped and must stay that way.** `extract.Message.ForceReextract` exists
+solely so a parked message can get past the F-30 message-id skip on a retry (F-78, ADR-005) —
+without it, a message that failed *after* `RecordMessageIfNew` would be silently skipped forever
+with no error and no log line. Set it only for an id admitted from the retry set: never for a listed
+id, never globally, never stickily. It bypasses **L1 only**; L2, L3, L4 and F-44 rejection memory
+stay in force.
+
 ## Scope fence
 
 In: PRD P0 (spike) + P1 (MVP). Out: image conversion (P2), link-following (P3), auto-upload /

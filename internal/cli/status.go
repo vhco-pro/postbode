@@ -54,6 +54,13 @@ type StatusReport struct {
 
 	LastUploaded *queue.Item // nil if nothing has ever uploaded
 	Stuck        []*queue.Item
+
+	// Parked is every message the poll has set aside (F-85), oldest park
+	// first. Deliberately NOT items: a parked message has no extractable
+	// document, so it has no queue row and never enters the lifecycle
+	// (F-86). `postbode status` and the park notification are its entire
+	// visibility surface.
+	Parked []queue.MessageFailure
 }
 
 // Count returns how many items are currently in status st.
@@ -71,10 +78,16 @@ func BuildStatusReport(ctx context.Context, db *queue.DB, now time.Time) (Status
 		return StatusReport{}, fmt.Errorf("cli: BuildStatusReport: %w", err)
 	}
 
+	parked, err := db.ListParkedMessages(ctx)
+	if err != nil {
+		return StatusReport{}, fmt.Errorf("cli: BuildStatusReport: %w", err)
+	}
+
 	report := StatusReport{
-		Now:   now.UTC(),
-		Sync:  sync,
-		Items: make(map[queue.Status][]*queue.Item, len(allStatuses)),
+		Now:    now.UTC(),
+		Sync:   sync,
+		Items:  make(map[queue.Status][]*queue.Item, len(allStatuses)),
+		Parked: parked,
 	}
 
 	var uploaded []*queue.Item
@@ -154,6 +167,29 @@ func FormatStatus(w io.Writer, r StatusReport) {
 		_, _ = fmt.Fprintln(w, "re-auth needed:   no")
 	}
 
+	// F-84: poll health in words. The `last poll:` line above already
+	// carries the timestamp, but reading a stall out of it requires
+	// noticing that a number is larger than it should be — which is exactly
+	// what nobody did for three days during the 2026-08-22 outage. This
+	// says it.
+	if r.Sync.PollHealthy() {
+		if r.Sync.LastPollAt != nil {
+			_, _ = fmt.Fprintf(w, "poll health:      ok (last successful poll %s ago)\n", formatAge(r.Now.Sub(*r.Sync.LastPollAt)))
+		} else {
+			_, _ = fmt.Fprintln(w, "poll health:      ok (no poll has run yet)")
+		}
+	} else {
+		since := "an unknown time"
+		if r.Sync.FirstPollFailureAt != nil {
+			since = fmt.Sprintf("%s (%s ago)", formatTime(*r.Sync.FirstPollFailureAt), formatAge(r.Now.Sub(*r.Sync.FirstPollFailureAt)))
+		}
+		_, _ = fmt.Fprintf(w, "poll health:      NOT MAKING PROGRESS — %d consecutive poll failures since %s\n",
+			r.Sync.ConsecutivePollFailures, since)
+		if r.Sync.LastPollError != "" {
+			_, _ = fmt.Fprintf(w, "  last error:     %s\n", r.Sync.LastPollError)
+		}
+	}
+
 	_, _ = fmt.Fprintln(w, "queue:")
 	for _, st := range allStatuses {
 		_, _ = fmt.Fprintf(w, "  %-19s %d\n", string(st), r.Count(st))
@@ -179,6 +215,29 @@ func FormatStatus(w io.Writer, r StatusReport) {
 		}
 		_, _ = fmt.Fprintf(w, "  [%d] %s since %s (%s ago) — %s\n",
 			it.ID, it.Status, formatTime(it.StagedAt), formatAge(r.Now.Sub(it.StagedAt)), name)
+	}
+
+	// F-85. Printed even when empty: a section that disappears when there
+	// is nothing to report trains the reader not to look for it, and this
+	// is the one place a parked message is ever visible.
+	_, _ = fmt.Fprintf(w, "parked messages:  %d\n", len(r.Parked))
+	for _, f := range r.Parked {
+		parkedAt := ""
+		if f.ParkedAt != nil {
+			parkedAt = fmt.Sprintf(" since %s (%s ago)", formatTime(*f.ParkedAt), formatAge(r.Now.Sub(*f.ParkedAt)))
+		}
+		_, _ = fmt.Fprintf(w, "  %s  %d failure(s)%s\n", f.GmailMessageID, f.FailureCount, parkedAt)
+		if f.LastError != "" {
+			_, _ = fmt.Fprintf(w, "    last error:   %s\n", f.LastError)
+		}
+		_, _ = fmt.Fprintf(w, "    last tried:   %s (%s ago)\n", formatTime(f.LastFailedAt), formatAge(r.Now.Sub(f.LastFailedAt)))
+		if f.NextRetryAt != nil {
+			_, _ = fmt.Fprintf(w, "    next retry:   %s\n", formatTime(*f.NextRetryAt))
+		} else {
+			// Exhausted is not "given up": the message stays here forever
+			// until a human acts (F-79). Name the command that does it.
+			_, _ = fmt.Fprintf(w, "    next retry:   auto-retry exhausted — run: postbode retry %s\n", f.GmailMessageID)
+		}
 	}
 
 	if ReviewUIReachable(reviewUIAddr) {
