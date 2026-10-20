@@ -17,16 +17,18 @@ const authCookieName = "postbode_gmail_consent"
 // service. Install must persist the token before publishing it to that service.
 // Configure this before starting the HTTP server.
 type GmailAuth struct {
-	Config  oauth2.Config
-	Install func(context.Context, *oauth2.Token) error
-	mu      sync.Mutex
-	attempt consentAttempt
+	Config     oauth2.Config
+	Install    func(context.Context, *oauth2.Token) error
+	mu         sync.Mutex
+	attempt    consentAttempt
+	generation uint64
 }
 
 type consentAttempt struct {
-	state    string
-	verifier string
-	expires  time.Time
+	state      string
+	verifier   string
+	expires    time.Time
+	generation uint64
 }
 
 func (s *Server) handleGmailAuthStart(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +48,8 @@ func (s *Server) handleGmailAuthStart(w http.ResponseWriter, r *http.Request) {
 		expires:  time.Now().Add(10 * time.Minute),
 	}
 	a.mu.Lock()
+	a.generation++
+	attempt.generation = a.generation
 	a.attempt = attempt
 	a.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{
@@ -97,7 +101,18 @@ func (s *Server) handleGmailAuthCallback(w http.ResponseWriter, r *http.Request)
 		s.authFailure(w, http.StatusBadGateway)
 		return
 	}
-	if err := a.Install(ctx, tok); err != nil {
+	// A newer consent may have started while this exchange was in flight.
+	// Serialize the final save and source replacement with new starts and
+	// other installs so persisted and live credentials cannot diverge.
+	a.mu.Lock()
+	if attempt.generation != a.generation {
+		a.mu.Unlock()
+		s.authFailure(w, http.StatusConflict)
+		return
+	}
+	err = a.Install(ctx, tok)
+	a.mu.Unlock()
+	if err != nil {
 		s.authFailure(w, http.StatusInternalServerError)
 		return
 	}

@@ -49,6 +49,11 @@ Complete F-16 and F-45 recovery: helper discovery, authenticated notification cl
 
 `BestReview` in `internal/notify/notify.go:83` runs the current binary's review command. The handlers in `internal/webui/gmail_auth.go:32` and `internal/webui/gmail_auth.go:61` bind consent to the browser and install its result. `internal/gmailwatch/token_source.go:13` supports replacing the running client's token source after persistence.
 
+The HTTP client reads the replaceable source on every request so an unexpired
+access token cannot survive reconnection in an outer cache. Consent attempts have
+a generation: a superseded exchange cannot install credentials, and persistence
+and replacement are serialized with new consent starts.
+
 The server remains loopback-only. Callback redirect URI is fixed by application
 configuration, never derived from request Host. Every upload still needs approval;
 parked mail and all four duplicate prevention layers are unchanged. No live API
@@ -74,7 +79,7 @@ The `legacy_criterion_ids` mapping preserves the original N1 through N6 referenc
 | AC-51 | `TestClickRunsAbsoluteReviewWithoutNotificationSecrets` in `internal/notify/click_test.go` captures helper arguments and executes the quoted command against a harmless executable. The macOS overlay click remains unverified in the historical summary. |
 | AC-52 | `TestConsentRepairsRunningGmailClient` in `internal/webui/gmail_auth_test.go` checks repeated invalid_grant polls, one notification, persisted auth state and the empty-queue recovery action. |
 | AC-53 | `TestConsentRejectsUnboundExpiredAndSupersededRequests` and `TestConsentRepairsRunningGmailClient` in `internal/webui/gmail_auth_test.go` check session/state/cookie binding, PKCE, denial, expiry, supersession, retry and replay; inspect startup wiring for restart availability. |
-| AC-54 | `TestConsentRepairsRunningGmailClient` in `internal/webui/gmail_auth_test.go`, `TestInstallGmailTokenPersistsBeforeReplacingLiveSource` in `cmd/postbode/gmail_install_test.go`, and `internal/gmailwatch/token_source_test.go` check persistence ordering and recovery of the same service. |
+| AC-54 | `TestConsentRepairsRunningGmailClient` and `TestConsentDoesNotInstallSupersededExchange` in `internal/webui/gmail_auth_test.go`, `TestInstallGmailTokenPersistsBeforeReplacingLiveSource` in `cmd/postbode/gmail_install_test.go`, and `TestConsentImmediatelyReplacesUnexpiredTokenInExistingClient` in `internal/gmailwatch/token_source_test.go` check persistence ordering, supersession and immediate recovery of the same client. |
 | AC-55 | `TestConsentExchangeAndStorageFailuresAreRecoverable` in `internal/webui/gmail_auth_test.go` checks exchange, missing-refresh-token and storage errors; inspect the bounded exchange context in `internal/webui/gmail_auth.go`. |
 
 ## Tasks

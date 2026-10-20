@@ -2,6 +2,7 @@ package gmailwatch
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -10,6 +11,33 @@ import (
 
 	"golang.org/x/oauth2"
 )
+
+func TestConsentImmediatelyReplacesUnexpiredTokenInExistingClient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, r.Header.Get("Authorization"))
+	}))
+	defer srv.Close()
+	ctx := context.Background()
+	source := NewReplaceableTokenSource(ctx, &oauth2.Config{}, &oauth2.Token{
+		AccessToken: "old-access", Expiry: time.Now().Add(time.Hour),
+	})
+	client := source.Client()
+	check := func(want string) {
+		t.Helper()
+		resp, err := client.Get(srv.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil || string(body) != want {
+			t.Fatalf("request authorization = %q, error %v; want %q", body, err, want)
+		}
+	}
+	check("Bearer old-access")
+	source.Replace(&oauth2.Token{AccessToken: "new-access", Expiry: time.Now().Add(time.Hour)})
+	check("Bearer new-access")
+}
 
 func TestConsentCanReplaceSourceDuringBlockedRefresh(t *testing.T) {
 	entered := make(chan struct{})

@@ -2,6 +2,7 @@ package gmailwatch
 
 import (
 	"context"
+	"net/http"
 	"sync"
 
 	"golang.org/x/oauth2"
@@ -19,6 +20,12 @@ type ReplaceableTokenSource struct {
 
 func NewReplaceableTokenSource(ctx context.Context, cfg *oauth2.Config, tok *oauth2.Token) *ReplaceableTokenSource {
 	return &ReplaceableTokenSource{ctx: ctx, cfg: cfg, source: cfg.TokenSource(ctx, tok)}
+}
+
+// Client reads this source on every request. oauth2.NewClient would add an
+// outer token cache that could keep an unexpired token after Replace.
+func (s *ReplaceableTokenSource) Client() *http.Client {
+	return &http.Client{Transport: &oauth2.Transport{Source: s}}
 }
 
 func (s *ReplaceableTokenSource) Token() (*oauth2.Token, error) {

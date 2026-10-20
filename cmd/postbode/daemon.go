@@ -359,7 +359,7 @@ func buildGmailService(ctx context.Context, home string, logf func(string, ...an
 		tok = legacyTok
 	}
 	tokens := gmailwatch.NewReplaceableTokenSource(ctx, oauthCfg, tok)
-	svc, err := gmail.NewService(ctx, option.WithHTTPClient(oauth2.NewClient(ctx, tokens)))
+	svc, err := gmail.NewService(ctx, option.WithHTTPClient(tokens.Client()))
 	if err != nil {
 		logf("daemon: build gmail service: %v", err)
 		return nil, nil, nil

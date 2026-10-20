@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +20,61 @@ import (
 	"google.golang.org/api/gmail/v1"
 	"google.golang.org/api/option"
 )
+
+func TestConsentDoesNotInstallSupersededExchange(t *testing.T) {
+	s := authTestServer(t)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+		}
+		code := r.Form.Get("code")
+		if code == "older" {
+			close(entered)
+			<-release
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"` + code + `","refresh_token":"refresh","expires_in":3600}`))
+	}))
+	defer tokenServer.Close()
+	defer once.Do(func() { close(release) })
+	installed := make(chan string, 2)
+	s.GmailAuth = &GmailAuth{
+		Config: oauth2.Config{Endpoint: oauth2.Endpoint{
+			AuthURL: "https://accounts.example/consent", TokenURL: tokenServer.URL, AuthStyle: oauth2.AuthStyleInParams,
+		}},
+		Install: func(_ context.Context, tok *oauth2.Token) error {
+			installed <- tok.AccessToken
+			return nil
+		},
+	}
+	older, olderCookie := startConsent(t, s)
+	olderDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() { olderDone <- consentCallback(s, older.Get("state"), "older", olderCookie) }()
+	select {
+	case <-entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("older consent never reached the fake exchange")
+	}
+	newer, newerCookie := startConsent(t, s)
+	if response := consentCallback(s, newer.Get("state"), "newer", newerCookie); response.Code != http.StatusSeeOther {
+		t.Fatalf("newer consent = %d: %s", response.Code, response.Body.String())
+	}
+	once.Do(func() { close(release) })
+	select {
+	case response := <-olderDone:
+		if response.Code != http.StatusConflict {
+			t.Fatalf("superseded exchange = %d; want 409", response.Code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("older consent did not finish")
+	}
+	if len(installed) != 1 || <-installed != "newer" {
+		t.Fatal("an older consent overwrote the latest installed credentials")
+	}
+}
 
 func authTestServer(t *testing.T) *Server {
 	t.Helper()
@@ -104,7 +160,7 @@ func TestConsentRepairsRunningGmailClient(t *testing.T) {
 		}
 	}))
 	defer gmailServer.Close()
-	svc, err := gmail.NewService(context.Background(), option.WithHTTPClient(oauth2.NewClient(context.Background(), tokens)), option.WithEndpoint(gmailServer.URL+"/"))
+	svc, err := gmail.NewService(context.Background(), option.WithHTTPClient(tokens.Client()), option.WithEndpoint(gmailServer.URL+"/"))
 	if err != nil {
 		t.Fatal(err)
 	}
