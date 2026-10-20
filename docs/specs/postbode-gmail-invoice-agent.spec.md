@@ -1,8 +1,65 @@
-## SPECIFICATION: Postbode — Gmail → ClearFacts/QPS Invoice Agent
+---
+title: "Postbode Gmail to ClearFacts/QPS invoice agent"
+type: feature
+slug: postbode-gmail-invoice-agent
+status: draft
+status_description: "Retrofitted to vh-adlc format; historical implementation claims are preserved, and vh-adlc review and acceptance are not recorded."
+issue: null
+goal: "Stage Gmail purchase invoices for human review and upload approved documents with local duplicate prevention."
+created: "2026-08-03"
+source: prd-postbode.md
+version: "1.10"
+legacy_status: "Draft: P0 spike COMPLETE: all six legs pass live (ClearFacts 2026-08-03, Gmail 2026-08-04). Phase 4 queue implemented."
+covers:
+  - cmd/
+  - internal/
+  - tests/
+  - testdata/
+  - launchd/
+  - go.mod
+  - go.sum
+  - Makefile
+  - .gitignore
+  - .golangci.yml
+  - .goreleaser.yml
+  - gitversion.yml
+  - .github/workflows/
+legacy_criterion_ids:
+  "AC-1": AC-01
+  "AC-2": AC-02
+  "AC-3": AC-03
+  "AC-4": AC-04
+  "AC-5": AC-05
+  "AC-6": AC-06
+  "AC-7": AC-07
+  "AC-8": AC-08
+  "AC-9": AC-09
+  "AC-5b": AC-48
+  "AC-5c": AC-49
+---
 
-**Version:** 1.10
-**Status:** Draft — **P0 spike COMPLETE**: all six legs pass live (ClearFacts 2026-08-03, Gmail 2026-08-04). Phase 4 queue implemented.
-**Changelog:**
+# Postbode Gmail to ClearFacts/QPS invoice agent
+
+## Context
+
+The runtime orchestration lives in `internal/daemon/daemon.go:1`. This document retains the original P0/P1 requirements and revision history. The frontmatter status describes the vh-adlc retrofit, not whether the existing application has been built. Earlier phase status is recorded in `legacy_status`; no review or acceptance is inferred from it.
+
+Historical criteria AC-5c and AC-15 still mention tags, while the later F-56 amendment requires comment-only provenance. This format conversion preserves that discrepancy for review instead of silently changing the requirement.
+
+### 1. Overview
+
+Postbode is a **single-user macOS background daemon written in Go**, distributed as a local static binary run under a launchd `LaunchAgent`. It polls one Gmail account, extracts purchase-invoice attachments, applies a config-driven rules engine, stages candidates in a SQLite **review queue** surfaced through a localhost-only web UI plus a macOS notification, and — **only after explicit human approval** — uploads each document to the ClearFacts GraphQL API (`uploadFile`, `invoicetype: PURCHASE`) into the QPS administration's digital inbox, then labels the source email `VH&Co/submitted`. (PRD §1, §5, §6.)
+
+It serves exactly one user (Michiel), one Gmail account, one administration ("VH & Co", one VAT/company number). The target corpus is deliberately narrow: foreign vendors, SaaS subscriptions, webshops and consumer-style suppliers that do **not** deliver via Peppol, since the Belgian B2B e-invoicing mandate already routes most Belgian suppliers straight into the portal (PRD §2.2). Postbode must never compete with, duplicate, or replace the Peppol channel.
+
+The defining constraint of the whole design: **the developer's recurring pain is not "did it get sent" but "was it already sent".** A verified API limitation makes this harder than it looks — see §3 (F-30…F-39) and §10 Assumption A-1.
+
+There is no cloud component, no telemetry, no hosted service, no container, no Kubernetes. Secrets live in the macOS Keychain. Everything else is a local SQLite file and a local spool directory. (PRD §8.)
+
+**Repo identity (supersedes PRD §13.2):** Go module path is `github.com/vhco-pro/postbode`. The PRD's `github.com/michielvh/postbode` is **superseded** and must not be used. Repo is `git init`-ed on `main`, commit identity `michielvha <<maintainer>>`, no remote configured, no push.
+
+### Revision history
+
 - **v1.11 — the watch scope was never enforced, and silently dropped imported mail.** F-11 and F-13 amended after a live defect: for two days the daemon polled successfully every 5 minutes and staged nothing, while three Anthropic invoices sat in the mailbox. Root cause was `users.history.list`'s `labelId` parameter, which F-12's implementation used to express F-11's INBOX scope. It does not mean that. Gmail matches `labelId` against the label set recorded *in the history record*, which is **empty** for messages inserted by the "Check mail from other accounts" POP3 fetcher (and by `messages.import`/`insert`), so every imported invoice was dropped before its id was ever returned — while `[SENT]` and `[DRAFT]` adds passed straight through, so the parameter did not even enforce the scope it claimed. Both halves verified live against the real mailbox: the same history window returned **0** `messagesAdded` records with `labelId=INBOX` and **3** without it. F-13's `in:inbox` fallback query had the same blind spot, so the designated safety net could not catch what the primary path missed — which is why the failure was silent and total rather than degraded. **The scope is now a single check on the fetched message's real labels** (`Watcher.inScope`), applied identically to both paths, and its default widens from INBOX-only to the whole mailbox minus `SENT`/`DRAFT`/`TRASH`/`SPAM`. `gmail.watch: inbox` still selects the old narrow scope, now correctly enforced. The tests could not have caught this: `fake.Server.HistoryFunc` takes only `(startHistoryId, pageToken)`, making `labelId` unrepresentable, and the two tests named for F-11 asserted only that the parameter was *sent*.
 - **v1.10 — the review UI stops fighting the user.** F-46 amended again: the session token is persisted and reused across restarts, so a bookmarked `http://127.0.0.1:7391/` keeps working indefinitely instead of dying on every daemon restart. Rotation stays available by deleting the token file. Also a real visual design for the queue — dark-blue gradient, card layout, colour-coded badges, native `<details>` PDF preview — with **still zero client-side JS**, so NF-01 and ADR-002's browser-free e2e approach both hold. AC-33.
 - **v1.9 — reachability of the review UI.** F-46 amended: the session token rotates on every daemon start and had to be in the URL, so bookmarks and open tabs turned into a bare `unauthorized` with no hint what to do. A first authenticated visit now sets a same-origin session cookie, making plain `http://127.0.0.1:7391/` work thereafter, and the 401 page names `postbode review`. Security properties unchanged: same secret, still loopback-only, forged cookies rejected.
@@ -23,28 +80,33 @@
 - **v1.3** — Ratified 8 defects found by the planner against v1.2. Real contradictions fixed: the `sha256` partial unique index vs. F-31/AC-11 (new terminal status `duplicate_linked`, OQ-P1); F-13's resync query unbounded and not inbox-scoped, contradicting F-11 (OQ-P6); F-15's hard label-refusal indistinguishable from F-16's routine re-auth (OQ-P7). Gaps closed: `gopkg.in/yaml.v3` added to NF-13, which mandated YAML config with no parser (OQ-P2); F-46 session-token handoff mechanism defined (OQ-P8); `statistics` added to NF-02's PAT scopes since scopes are fixed at creation (OQ-P11); AC-22 given an enforcement mechanism (OQ-P9); AC-21's LAN assertion made environment-conditional (OQ-P13). Added AC-27…AC-29 for silent-failure P0s and conditional AC-30 for F-57 (OQ-P3, OQ-P10).
 - **v1.2** — Located the **full published GraphQL schema** at `assets-prod.cdn.clearfacts.be/doc/` and rewrote §6.1 from it. Closed OQ-3 (`{PURCHASE, SALE, VARIOUS}`), OQ-4 (no list query — confirmed against the complete 10-query root) and OQ-7 (no duplicate field exists — negative). Corrected the upload signature: **`vatnumber` is deprecated, use `companyNumber`** (A-12). Added F-56 provenance stamping via the newly-found writable `comment`/`tags` (A-13), F-57 conditional aggregate reconciliation via `companyStatistics` (A-14, OQ-8). Dropped F-37b and the F-09 field-probe as answered. OQ-2 (limits) reframed as empirical-only.
 - **v1.1** — Recorded ClearFacts' server-side "possible duplicate" flagging as a backstop, not a mechanism (A-11).
-**Date:** 2026-08-03
-**Type:** feature
-**Slug:** postbode-gmail-invoice-agent
-**Scope:** PRD phases **P0 (spike)** and **P1 (MVP)** only. P2/P3/P4 are follow-on (see §9).
-**Source of truth:** `prd-postbode.md` (repo root, Draft v1.2, 2026-08-03). Every requirement below carries a `PRD §x` trace.
-**Constitution:** none. This repo intentionally has no `vega.yaml`. No platform archetype, no cluster/registry/GitOps bindings, no inherited Tier-3 specs. This spec stands alone.
 
----
+## Scope
 
-### 1. Overview
+PRD phases P0 (spike) and P1 (MVP): one user, mailbox, administration and Mac.
 
-Postbode is a **single-user macOS background daemon written in Go**, distributed as a local static binary run under a launchd `LaunchAgent`. It polls one Gmail account, extracts purchase-invoice attachments, applies a config-driven rules engine, stages candidates in a SQLite **review queue** surfaced through a localhost-only web UI plus a macOS notification, and — **only after explicit human approval** — uploads each document to the ClearFacts GraphQL API (`uploadFile`, `invoicetype: PURCHASE`) into the QPS administration's digital inbox, then labels the source email `VH&Co/submitted`. (PRD §1, §5, §6.)
+### 9. Out of Scope
 
-It serves exactly one user (Michiel), one Gmail account, one administration ("VH & Co", one VAT/company number). The target corpus is deliberately narrow: foreign vendors, SaaS subscriptions, webshops and consumer-style suppliers that do **not** deliver via Peppol, since the Belgian B2B e-invoicing mandate already routes most Belgian suppliers straight into the portal (PRD §2.2). Postbode must never compete with, duplicate, or replace the Peppol channel.
+Explicitly **not** covered by this spec:
 
-The defining constraint of the whole design: **the developer's recurring pain is not "did it get sent" but "was it already sent".** A verified API limitation makes this harder than it looks — see §3 (F-30…F-39) and §10 Assumption A-1.
+- **PRD P2 — Image attachments.** HEIC/PNG/TIFF → JPEG conversion via `sips`, tiny-image (< 30 KB) filtering, one-item-per-image. **Discrepancy flagged:** PRD **§6.2 labels image attachments "(MVP)"** while **PRD §10 places them in phase P2**. This spec **resolves in favour of §10** — images are P2 and out of scope here. The extractor stages non-PDF accepted types as `unsupported_type` (F-25) so the P2 work is additive, not a rewrite.
+- **PRD P3 — Link-based invoices.** Tier-1 direct-PDF link fetching, per-vendor YAML recipes, the "vendors worth a recipe" digest. No HTTP link-following of any kind in P1.
+- **PRD P4 — Comfort.** Per-rule auto-upload (`--yolo`), weekly digest notification, `postbode doctor`. In P1 **every** upload requires human approval (G-3); there is no auto-upload path at all.
+- **Sales and "various" invoices.** `invoicetype: SALE` and `VARIOUS` are never sent in v1, nor is the `uploadArchiveFile` mutation used; PURCHASE only. (PRD §4.)
+- **The archive-upload mutation** for "Divers" documents.
+- **Bookkeeping logic** — coding, VAT treatment, approval-for-payment stay with QPS/ClearFacts. (PRD §4.)
+- **Replacing or interacting with the Peppol channel.** Postbode only avoids it. (PRD §4.)
+- **iPhone capture flow** — the QPS mobile app already covers photographed receipts. (PRD §4.)
+- **IMAP + app-password fallback** — documented as an escape hatch (F-18), not implemented.
+- **Headless-browser / portal-login invoice retrieval** — permanently out of scope. (PRD §6.2 tier 3.)
+- **Scraping the QPS web UI** for upload or for listing existing documents. (PRD §12.)
+- **Multi-user, multi-administration, hosted or cloud operation.** One user, one mailbox, one administration, one Mac. (PRD §4, §12.)
+- **Any Engie platform artifact** — no `vega.yaml`, no Kubernetes, no Argo CD, no GitOps repo, no container image, no cloud secret manager, no registry. This is a personal local binary; secrets are macOS Keychain.
+- **A remote git remote / push.** The repo is local-only for now.
 
-There is no cloud component, no telemetry, no hosted service, no container, no Kubernetes. Secrets live in the macOS Keychain. Everything else is a local SQLite file and a local spool directory. (PRD §8.)
+## Design
 
-**Repo identity (supersedes PRD §13.2):** Go module path is `github.com/vhco-pro/postbode`. The PRD's `github.com/michielvh/postbode` is **superseded** and must not be used. Repo is `git init`-ed on `main`, commit identity `michielvha <<maintainer>>`, no remote configured, no push.
-
----
+The numbered design sections retain their original reference anchors. Descriptions of pre-fix failures and old decisions are historical context. Current orchestration is in `internal/daemon/daemon.go:1`; new framework instructions are in `AGENTS.md`.
 
 ### 2. Goals & Success Metrics
 
@@ -57,8 +119,6 @@ There is no cloud component, no telemetry, no hosted service, no container, no K
 | G-5 | The developer can always answer "is this already uploaded?" | For any invoice, a single `postbode status <query>` or review-UI search returns one of: `uploaded (uuid, verified-at)`, `staged`, `rejected`, `already-in-portal (marked <date>)`, or `unknown`. p95 answer time < 10 s, no portal login required. |
 | G-6 | Runs unattended, recovers cleanly | Survives laptop sleep, restart and a 14-day offline period with no lost invoices and no crash-loop; `KeepAlive` restart count over 2 weeks ≤ 2. |
 | G-7 | Beats "just add more Gmail filters" | Missed-invoice rate strictly lower than the filter-only baseline, and marketing noise reaching the portal = 0. (PRD §12 benchmark.) |
-
----
 
 ### 3. Functional Requirements
 
@@ -177,8 +237,6 @@ Priority scale: **P0** = launch blocker for the phase named in Notes · **P1** =
 | F-66 | P1 | Repo layout follows PRD §13.2 (`cmd/`, `internal/{gmailwatch,extract,rules,queue,clearfacts,webui,keychain}`, `testdata/`, `Makefile`, `launchd/`) with module path `github.com/vhco-pro/postbode`. | PRD §13.2, **module path superseded** by repo context. |
 | F-67 | P1 | `CLAUDE.md` is created at repo root from the PRD §13.3 starter, amended with: the vhco-pro module path, the four-layer dedup rule, and the "no test touches live APIs" rule. | PRD §13.3. |
 
----
-
 ### 4. Non-Functional Requirements
 
 | ID | Category | Requirement |
@@ -196,8 +254,6 @@ Priority scale: **P0** = launch blocker for the phase named in Notes · **P1** =
 | NF-11 | Operational etiquette | Every live upload is announced in session output with uuid + filename. Test uploads always use the `TEST-postbode-ignore` filename prefix. Label moves occur only on messages the pipeline actually processed. "It appeared in the portal" is treated as human-confirmed, never assumed. (PRD §13.5.) |
 | NF-12 | Quality gate | `make test && go vet ./...` passes before any task is declared done. (PRD §13.3.) |
 | NF-13 | Maintainability | Dependencies restricted to: `google.golang.org/api/gmail/v1`, `golang.org/x/oauth2`, `modernc.org/sqlite`, **`gopkg.in/yaml.v3`**, plus stdlib. **`github.com/zalando/go-keyring` was dropped in v1.7** — `internal/keychain` shells out to `/usr/bin/security` instead (see F-62), so the dependency bought nothing. Any further addition requires a note in the plan. (PRD §13.2.) **Ratified v1.3 (planner finding OQ-P2):** the YAML parser was an omission, not a discretionary extra — F-26 mandates a YAML config file, and the original list contained no way to read one. A PDF **text-extraction** dependency is deliberately still excluded: F-32's "PDF text layer where one exists" is therefore a P2 refinement, and L3 ships parsing filename + subject only (see F-32 note), so no dependency decision blocks it. F-22's password-protected-PDF check needs no library — it is a stdlib scan for `/Encrypt`. |
-
----
 
 ### 5. Data Model & Flows
 
@@ -248,8 +304,6 @@ Constraints: unique index on `item.sha256` where `status IN ('staged','approved'
 | **L2** SHA-256 | Byte-identical file already staged/uploaded/marked | Link to earlier item, never upload | Yes (logged + shown in UI) |
 | **L3** identity key | Same invoice, different bytes (regenerated PDF, two emails) | Stage with `possible duplicate of <ref>` badge | **No — human decides** |
 | **L4** vendor teaching | Invoice already in the portal via a channel Postbode cannot see (Peppol, Auto-forward, mobile app, manual) | Stage pre-flagged `probably already handled`, or `suppressed_peppol` for configured Peppol vendors | **No — human decides** (except configured Peppol vendors, which need an explicit override) |
-
----
 
 ### 6. API / Interface Contracts
 
@@ -369,56 +423,6 @@ postbode log [--since 24h]      # decision + upload log
 
 Normative shape is PRD §6.3, plus these P1 additions: `gmail.watch: all` (F-11; `inbox` also accepted), `vendors.known_peppol: []` (F-36), `retention_days: 30` (F-24), `upload.max_concurrent: 1`, `upload.min_interval: 2s` (F-54), `ui.port: 7391`.
 
----
-
-### 7. Acceptance Criteria
-
-**P0 — spike**
-
-- [ ] **AC-1:** `go run ./cmd/spike` prints at least one administration with a non-empty `companyNumber`, and writes that value into `~/.config/postbode/config.yaml` under **`administration.company_number`** (the PRD §6.3 sample's `administration.vatnumber` key is superseded along with the argument name). *(F-01, A-12)*
-- [ ] **AC-2:** The spike uploads `TEST-postbode-ignore.pdf` with `invoicetype: PURCHASE` and prints a non-empty `uuid` plus `amountOfPages`; the same line names the file and administration. *(F-02, F-04)*
-- [ ] **AC-3:** Immediately after AC-2 the spike calls `document(id: <uuid>)` and prints `verified: true` on a resolving response. *(F-05, F-37)*
-- [ ] **AC-4:** The spike prints the 5 newest Gmail message ids and the resolved label ID for `VH&Co/submitted`. With that label renamed/absent, the spike exits non-zero with an explicit "label not found, refusing to create" message and creates no label. *(F-03, F-15)*
-- [ ] **AC-5:** The developer confirms in the portal that exactly one `TEST-postbode-ignore.pdf` appeared in "In verwerking" and deletes it. Human-confirmed, not assumed. *(NF-11)*
-- [ ] **AC-5b:** The spike calls `companyStatistics` for the current month with `invoicetype: PURCHASE`, trying each candidate `type` string, and prints either the returned `{period, value}` items with the `type` that worked, or an explicit "no working `type` found". Either outcome is a pass; the result is written into OQ-8 and decides whether F-57 survives. *(F-08)*
-- [ ] **AC-5c:** The spike's upload passes **`companyNumber`** (never the deprecated `vatnumber`) and sets `tags: ["postbode"]` plus a provenance `comment`; the follow-up `document(id: <uuid>)` reads both back unchanged. *(F-06, F-56)*
-
-**P1 — pipeline**
-
-- [ ] **AC-6:** Given a `testdata/*.eml` fixture with two PDFs nested in `multipart/mixed` plus one `application/octet-stream` named `*.pdf`, the extractor produces exactly 3 queue items linked to one `gmail_message_id`. *(F-20, F-21)*
-- [ ] **AC-7:** Given a password-protected PDF fixture, the item is staged with `needs_manual_handling=true`, is not uploadable from the UI, and is never sent to the fake upload server. *(F-22)*
-- [ ] **AC-8:** Rules table test: for the exact `config.yaml` in PRD §6.3, an email from `news@newsletter.example.com` with a PDF yields decision `denied` (rule index 2), and an email from `billing@ovh.com` with a PDF yields `queued` (rule index 0). Both appear in `decision_log`. *(F-26, F-28)*
-- [ ] **AC-9:** With no rule matching, an email carrying a PDF and the subject "Uw factuur juli" is queued with `low_confidence=true`. *(F-27, F-47)*
-- [ ] **AC-10:** Replaying the same Gmail history response twice produces exactly one set of items; the second pass writes a `skip (L1)` log line and creates zero rows. *(F-30)*
-- [ ] **AC-11:** Two different emails carrying byte-identical PDFs produce one uploadable item; the second is `linked_item_id`-bound with `dedup_layer='L2'` and is never POSTed to the fake upload server. *(F-31)*
-- [ ] **AC-12:** Two emails carrying **different bytes** but the same `(vendor_domain, invoice_number, invoice_date, total_amount)` both stage, and the second shows a `possible duplicate of #<id>` badge with the first item's status and uuid. Neither is auto-suppressed. *(F-32, F-33)*
-- [ ] **AC-13:** `POST /items/{id}/already-in-portal` sets status `already_in_portal`, writes a `vendor_teaching` row, and performs zero upload calls. A subsequent item from the same `vendor_domain` stages with `probably_already_handled=true` and the UI shows the reason and the teaching date. *(F-34, F-35)*
-- [ ] **AC-14:** With `vendors.known_peppol: ["*@acerta.be"]`, a PDF from `facturatie@acerta.be` stages as `suppressed_peppol` and the Approve button is disabled without an explicit override action. *(F-36)*
-- [ ] **AC-15:** Approving one item POSTs exactly one multipart request to the fake server containing parts `query`, `variables` and `file`, with `variables.invoicetype == "PURCHASE"`, `variables.companyNumber` equal to the configured company number, **no `vatnumber` key present**, and `variables.tags == ["postbode"]`. *(F-50, F-56)*
-- [ ] **AC-16:** After a successful fake upload, the item has non-null `uuid` and `verified_at`, and `postbode status --find <vendor>` prints `uploaded (uuid=<uuid>, verified <ts>)`. *(F-37, F-38, F-39)*
-- [ ] **AC-17:** A fake server returning 503 three times then 200 results in exactly one stored `uuid`, `retry_count == 3`, and no duplicate upload. A fake server returning 400 marks the item `failed` immediately with `retry_count == 0`. *(F-51)*
-- [ ] **AC-18:** Killing the process between `approved` and upload, then restarting, results in the item uploading exactly once with no second approval required. *(F-52, F-53)*
-- [ ] **AC-19:** A message with 2 PDFs where only 1 uploads successfully results in **no** `messages.modify` call; once the second succeeds, exactly one `modify` call is issued adding the submitted label and removing `INBOX`. *(F-14)*
-- [ ] **AC-20:** With the fake OAuth server returning `invalid_grant`, the daemon stays alive, emits a notification containing a re-auth URL, leaves all queue rows untouched, and `postbode status` reports `re-auth needed` with token age. Polling resumes without restart once auth succeeds. *(F-16, F-17)*
-- [ ] **AC-21:** `GET /` and every `POST` without a valid session token returns 401. The listener's bind address is asserted to be `127.0.0.1` directly; the LAN-IP-refused check runs **only when a non-loopback interface exists**, since it is otherwise environment-dependent and would fail on an offline machine. `session.token` is mode `0600`. *(F-42, F-46, NF-04)* — *LAN caveat and token file ratified v1.3, planner findings OQ-P13 / OQ-P8.*
-- [ ] **AC-22:** `make test && go vet ./...` passes, and the suite passes 100% with outbound network blocked. **Mechanism (ratified v1.3, planner finding OQ-P9):** "blocked" is enforced in-process by a test-only dialer guard that panics on any non-loopback dial, rather than assumed from the environment — otherwise the criterion states an outcome `go test` provides no way to produce, and NF-09 would be unenforceable in CI. *(NF-09, NF-12)*
-- [ ] **AC-23:** `make e2e-dry` runs the full pipeline against the fixture mailbox and fake upload server, ending with items in `uploaded` state and zero real network calls. *(NF-10)*
-- [ ] **AC-24:** `git status` shows no `credentials.json`, token cache, `spool/` content or `*.db` as tracked or untracked-unignored; grep of the log output for the PAT value returns zero matches. *(F-55, F-63, NF-03)*
-- [ ] **AC-25:** After `make install-launchagent`, `launchctl list` shows the agent, and `kill -9` of the daemon results in an automatic restart with the queue intact. *(F-61, NF-07)*
-- [ ] **AC-26:** Two consecutive weeks of real invoices flow review → portal with zero manual file handling and zero duplicates in "In verwerking". *(PRD §10 P1 definition of done; G-1, G-2, G-4)*
-
-**Added in v1.3 — planner finding OQ-P3.** Twelve P0 requirements had no acceptance criterion at all. The three below are promoted because each **fails silently**: nothing surfaces when they break, so only an explicit test catches them. The remaining nine are covered by the plan's supplementary `F-nn`-keyed test table rather than inflating this list.
-
-- [ ] **AC-27:** An item rejected in the UI does not reappear after a full re-poll of the same message, nor after a `historyId`-gap resync that re-fetches it. The re-poll writes a `skip (rejected)` log line and creates zero rows. *(F-44)*
-- [ ] **AC-28:** Staging new items invokes the notifier exactly once per batch with a message containing the item count; a completed upload batch invokes it exactly once more. Asserted against a fake notifier — `osascript` is behind an interface and is never executed in tests. *(F-45)*
-- [ ] **AC-32:** After one authenticated visit carrying `?t=<token>`, a request to `/` with **no** token parameter succeeds via the session cookie. A request with neither token nor cookie returns 401 **and** a body naming `postbode review`. A request carrying a forged cookie returns 401. *(F-46)* — *added v1.9.*
-- [ ] **AC-33:** `LoadOrCreateToken` returns the same token on repeated calls against the same path, so a daemon restart never invalidates a bookmark. The file stays `0600`; deleting it rotates the token; a trailing newline in the file is tolerated rather than silently breaking auth for the whole UI. *(F-46)* — *added v1.10.*
-- [ ] **AC-31:** Approving an item via the UI results in an upload attempt within **5 seconds**, without waiting for a Gmail poll. Verified with a fake clock/short intervals: `Nudge` never blocks (it runs on the HTTP request path), repeated signals coalesce to one pending drain rather than queueing, and `upload.interval` is independent of and strictly shorter than `gmail.poll_interval`. *(F-58)* — *added v1.8.*
-- [ ] **AC-29:** Given a `config.yaml` with an unknown rule key and given one with a malformed glob, the daemon exits non-zero **before** opening the queue, naming the offending line number in both cases, and the previous run's queue is left untouched. *(F-29)*
-- [x] ~~**AC-30 — conditional on OQ-8.**~~ **STRUCK v1.4** — the F-08 probe resolved OQ-8 negative (no working `companyStatistics` `type` argument), so F-57 and this criterion are both withdrawn. Recorded as satisfied-by-withdrawal rather than deleted, so the trail from "conditional requirement" to "condition failed, nothing built" stays auditable. *(F-57, struck)*
-
----
-
 ### 8. Edge Cases & Error Handling
 
 | Scenario | Expected behaviour | Trace |
@@ -443,29 +447,6 @@ Normative shape is PRD §6.3, plus these P1 additions: `gmail.watch: all` (F-11;
 | Item stuck > 48 h | Reported by `postbode status` and included in the notification summary | F-64, PRD §9 |
 | Disk full while spooling | Extraction fails safe: no queue row is committed, message-id is **not** marked seen, error logged, retried next poll | F-24, F-30 |
 | Rules config invalid after an edit | Daemon refuses to start with the offending line number; previous run's queue untouched | F-29 |
-
----
-
-### 9. Out of Scope
-
-Explicitly **not** covered by this spec:
-
-- **PRD P2 — Image attachments.** HEIC/PNG/TIFF → JPEG conversion via `sips`, tiny-image (< 30 KB) filtering, one-item-per-image. **Discrepancy flagged:** PRD **§6.2 labels image attachments "(MVP)"** while **PRD §10 places them in phase P2**. This spec **resolves in favour of §10** — images are P2 and out of scope here. The extractor stages non-PDF accepted types as `unsupported_type` (F-25) so the P2 work is additive, not a rewrite.
-- **PRD P3 — Link-based invoices.** Tier-1 direct-PDF link fetching, per-vendor YAML recipes, the "vendors worth a recipe" digest. No HTTP link-following of any kind in P1.
-- **PRD P4 — Comfort.** Per-rule auto-upload (`--yolo`), weekly digest notification, `postbode doctor`. In P1 **every** upload requires human approval (G-3); there is no auto-upload path at all.
-- **Sales and "various" invoices.** `invoicetype: SALE` and `VARIOUS` are never sent in v1, nor is the `uploadArchiveFile` mutation used; PURCHASE only. (PRD §4.)
-- **The archive-upload mutation** for "Divers" documents.
-- **Bookkeeping logic** — coding, VAT treatment, approval-for-payment stay with QPS/ClearFacts. (PRD §4.)
-- **Replacing or interacting with the Peppol channel.** Postbode only avoids it. (PRD §4.)
-- **iPhone capture flow** — the QPS mobile app already covers photographed receipts. (PRD §4.)
-- **IMAP + app-password fallback** — documented as an escape hatch (F-18), not implemented.
-- **Headless-browser / portal-login invoice retrieval** — permanently out of scope. (PRD §6.2 tier 3.)
-- **Scraping the QPS web UI** for upload or for listing existing documents. (PRD §12.)
-- **Multi-user, multi-administration, hosted or cloud operation.** One user, one mailbox, one administration, one Mac. (PRD §4, §12.)
-- **Any Engie platform artifact** — no `vega.yaml`, no Kubernetes, no Argo CD, no GitOps repo, no container image, no cloud secret manager, no registry. This is a personal local binary; secrets are macOS Keychain.
-- **A remote git remote / push.** The repo is local-only for now.
-
----
 
 ### 10. Open Questions
 
@@ -497,8 +478,6 @@ Explicitly **not** covered by this spec:
 - **A-8 — Scope is P0 + P1 only.** P2/P3/P4 are follow-on (§9). The PRD's internal §6.2-vs-§10 contradiction about images is resolved in favour of §10 (P2, out of scope). *[Risk: low]*
 - **A-9 — Testing never touches live APIs.** `httptest` fakes plus a `testdata/*.eml` corpus; only `cmd/spike` and the future `postbode doctor` may touch live systems. *[Risk: low]*
 - **A-10 — `companyNumber`** is the field returned by the `administrations` query, and its value is passed as the mutation's **`companyNumber`** argument (see A-12). The config key is `administration.company_number`. *[Risk: low — verified against the published schema]*
-
----
 
 ### 11. Planner Handoff Notes
 
@@ -557,3 +536,149 @@ Explicitly **not** covered by this spec:
 | Test corpus + `e2e-dry` | NF-09, NF-10 | **L** |
 
 **Traceability note for the planner:** every Test Plan row must cite an `AC-n`, and every `AC-n` must cite an `F-nn`/`NF-nn`. Requirements F-30 through F-39 collectively answer the developer's stated need ("I don't know if something already has been uploaded"); none of them may be descoped without an explicit spec revision.
+
+## Acceptance Criteria
+
+Legacy single-digit IDs are zero-padded. AC-48 preserves AC-5b and AC-49 preserves AC-5c; the `legacy_criterion_ids` mapping keeps existing references traceable. All checks are unticked pending vh-adlc review, including the historically withdrawn AC-30.
+
+### 7. Acceptance Criteria
+
+**P0 — spike**
+
+- [ ] AC-01: `go run ./cmd/spike` prints at least one administration with a non-empty `companyNumber`, and writes that value into `~/.config/postbode/config.yaml` under **`administration.company_number`** (the PRD §6.3 sample's `administration.vatnumber` key is superseded along with the argument name). *(F-01, A-12)*
+- [ ] AC-02: The spike uploads `TEST-postbode-ignore.pdf` with `invoicetype: PURCHASE` and prints a non-empty `uuid` plus `amountOfPages`; the same line names the file and administration. *(F-02, F-04)*
+- [ ] AC-03: Immediately after AC-2 the spike calls `document(id: <uuid>)` and prints `verified: true` on a resolving response. *(F-05, F-37)*
+- [ ] AC-04: The spike prints the 5 newest Gmail message ids and the resolved label ID for `VH&Co/submitted`. With that label renamed/absent, the spike exits non-zero with an explicit "label not found, refusing to create" message and creates no label. *(F-03, F-15)*
+- [ ] AC-05: The developer confirms in the portal that exactly one `TEST-postbode-ignore.pdf` appeared in "In verwerking" and deletes it. Human-confirmed, not assumed. *(NF-11)*
+- [ ] AC-48: The spike calls `companyStatistics` for the current month with `invoicetype: PURCHASE`, trying each candidate `type` string, and prints either the returned `{period, value}` items with the `type` that worked, or an explicit "no working `type` found". Either outcome is a pass; the result is written into OQ-8 and decides whether F-57 survives. *(F-08)*
+- [ ] AC-49: The spike's upload passes **`companyNumber`** (never the deprecated `vatnumber`) and sets `tags: ["postbode"]` plus a provenance `comment`; the follow-up `document(id: <uuid>)` reads both back unchanged. *(F-06, F-56)*
+
+**P1 — pipeline**
+
+- [ ] AC-06: Given a `testdata/*.eml` fixture with two PDFs nested in `multipart/mixed` plus one `application/octet-stream` named `*.pdf`, the extractor produces exactly 3 queue items linked to one `gmail_message_id`. *(F-20, F-21)*
+- [ ] AC-07: Given a password-protected PDF fixture, the item is staged with `needs_manual_handling=true`, is not uploadable from the UI, and is never sent to the fake upload server. *(F-22)*
+- [ ] AC-08: Rules table test: for the exact `config.yaml` in PRD §6.3, an email from `news@newsletter.example.com` with a PDF yields decision `denied` (rule index 2), and an email from `billing@ovh.com` with a PDF yields `queued` (rule index 0). Both appear in `decision_log`. *(F-26, F-28)*
+- [ ] AC-09: With no rule matching, an email carrying a PDF and the subject "Uw factuur juli" is queued with `low_confidence=true`. *(F-27, F-47)*
+- [ ] AC-10: Replaying the same Gmail history response twice produces exactly one set of items; the second pass writes a `skip (L1)` log line and creates zero rows. *(F-30)*
+- [ ] AC-11: Two different emails carrying byte-identical PDFs produce one uploadable item; the second is `linked_item_id`-bound with `dedup_layer='L2'` and is never POSTed to the fake upload server. *(F-31)*
+- [ ] AC-12: Two emails carrying **different bytes** but the same `(vendor_domain, invoice_number, invoice_date, total_amount)` both stage, and the second shows a `possible duplicate of #<id>` badge with the first item's status and uuid. Neither is auto-suppressed. *(F-32, F-33)*
+- [ ] AC-13: `POST /items/{id}/already-in-portal` sets status `already_in_portal`, writes a `vendor_teaching` row, and performs zero upload calls. A subsequent item from the same `vendor_domain` stages with `probably_already_handled=true` and the UI shows the reason and the teaching date. *(F-34, F-35)*
+- [ ] AC-14: With `vendors.known_peppol: ["*@acerta.be"]`, a PDF from `facturatie@acerta.be` stages as `suppressed_peppol` and the Approve button is disabled without an explicit override action. *(F-36)*
+- [ ] AC-15: Approving one item POSTs exactly one multipart request to the fake server containing parts `query`, `variables` and `file`, with `variables.invoicetype == "PURCHASE"`, `variables.companyNumber` equal to the configured company number, **no `vatnumber` key present**, and `variables.tags == ["postbode"]`. *(F-50, F-56)*
+- [ ] AC-16: After a successful fake upload, the item has non-null `uuid` and `verified_at`, and `postbode status --find <vendor>` prints `uploaded (uuid=<uuid>, verified <ts>)`. *(F-37, F-38, F-39)*
+- [ ] AC-17: A fake server returning 503 three times then 200 results in exactly one stored `uuid`, `retry_count == 3`, and no duplicate upload. A fake server returning 400 marks the item `failed` immediately with `retry_count == 0`. *(F-51)*
+- [ ] AC-18: Killing the process between `approved` and upload, then restarting, results in the item uploading exactly once with no second approval required. *(F-52, F-53)*
+- [ ] AC-19: A message with 2 PDFs where only 1 uploads successfully results in **no** `messages.modify` call; once the second succeeds, exactly one `modify` call is issued adding the submitted label and removing `INBOX`. *(F-14)*
+- [ ] AC-20: With the fake OAuth server returning `invalid_grant`, the daemon stays alive, emits a notification containing a re-auth URL, leaves all queue rows untouched, and `postbode status` reports `re-auth needed` with token age. Polling resumes without restart once auth succeeds. *(F-16, F-17)*
+- [ ] AC-21: `GET /` and every `POST` without a valid session token returns 401. The listener's bind address is asserted to be `127.0.0.1` directly; the LAN-IP-refused check runs **only when a non-loopback interface exists**, since it is otherwise environment-dependent and would fail on an offline machine. `session.token` is mode `0600`. *(F-42, F-46, NF-04)* — *LAN caveat and token file ratified v1.3, planner findings OQ-P13 / OQ-P8.*
+- [ ] AC-22: `make test && go vet ./...` passes, and the suite passes 100% with outbound network blocked. **Mechanism (ratified v1.3, planner finding OQ-P9):** "blocked" is enforced in-process by a test-only dialer guard that panics on any non-loopback dial, rather than assumed from the environment — otherwise the criterion states an outcome `go test` provides no way to produce, and NF-09 would be unenforceable in CI. *(NF-09, NF-12)*
+- [ ] AC-23: `make e2e-dry` runs the full pipeline against the fixture mailbox and fake upload server, ending with items in `uploaded` state and zero real network calls. *(NF-10)*
+- [ ] AC-24: `git status` shows no `credentials.json`, token cache, `spool/` content or `*.db` as tracked or untracked-unignored; grep of the log output for the PAT value returns zero matches. *(F-55, F-63, NF-03)*
+- [ ] AC-25: After `make install-launchagent`, `launchctl list` shows the agent, and `kill -9` of the daemon results in an automatic restart with the queue intact. *(F-61, NF-07)*
+- [ ] AC-26: Two consecutive weeks of real invoices flow review → portal with zero manual file handling and zero duplicates in "In verwerking". *(PRD §10 P1 definition of done; G-1, G-2, G-4)*
+
+**Added in v1.3 — planner finding OQ-P3.** Twelve P0 requirements had no acceptance criterion at all. The three below are promoted because each **fails silently**: nothing surfaces when they break, so only an explicit test catches them. The remaining nine are covered by the plan's supplementary `F-nn`-keyed test table rather than inflating this list.
+
+- [ ] AC-27: An item rejected in the UI does not reappear after a full re-poll of the same message, nor after a `historyId`-gap resync that re-fetches it. The re-poll writes a `skip (rejected)` log line and creates zero rows. *(F-44)*
+- [ ] AC-28: Staging new items invokes the notifier exactly once per batch with a message containing the item count; a completed upload batch invokes it exactly once more. Asserted against a fake notifier — `osascript` is behind an interface and is never executed in tests. *(F-45)*
+- [ ] AC-32: After one authenticated visit carrying `?t=<token>`, a request to `/` with **no** token parameter succeeds via the session cookie. A request with neither token nor cookie returns 401 **and** a body naming `postbode review`. A request carrying a forged cookie returns 401. *(F-46)* — *added v1.9.*
+- [ ] AC-33: `LoadOrCreateToken` returns the same token on repeated calls against the same path, so a daemon restart never invalidates a bookmark. The file stays `0600`; deleting it rotates the token; a trailing newline in the file is tolerated rather than silently breaking auth for the whole UI. *(F-46)* — *added v1.10.*
+- [ ] AC-31: Approving an item via the UI results in an upload attempt within **5 seconds**, without waiting for a Gmail poll. Verified with a fake clock/short intervals: `Nudge` never blocks (it runs on the HTTP request path), repeated signals coalesce to one pending drain rather than queueing, and `upload.interval` is independent of and strictly shorter than `gmail.poll_interval`. *(F-58)* — *added v1.8.*
+- [ ] AC-29: Given a `config.yaml` with an unknown rule key and given one with a malformed glob, the daemon exits non-zero **before** opening the queue, naming the offending line number in both cases, and the previous run's queue is left untouched. *(F-29)*
+- [ ] AC-30: ~~Conditional on OQ-8.~~ **STRUCK v1.4** — the F-08 probe resolved OQ-8 negative (no working `companyStatistics` `type` argument), so F-57 and this criterion are both withdrawn. Recorded as satisfied-by-withdrawal rather than deleted, so the trail from "conditional requirement" to "condition failed, nothing built" stays auditable. *(F-57, struck)*
+
+## Test Plan
+
+| Criterion | Proof |
+| --- | --- |
+| AC-01 | Historical spike procedure in `plans/postbode-gmail-invoice-agent.md`, Phase 3: list administrations, select a non-empty company number and inspect the saved config. `cmd/spike/config_test.go` checks persistence. Do not run the live spike as part of this retrofit. |
+| AC-02 | Historical Phase 3 procedure: inspect the PURCHASE upload response, announced filename, administration, UUID and page count. This requires separate live-operation authorization. |
+| AC-03 | Historical Phase 3 procedure: resolve the returned UUID with `document(id:)` and inspect the verification output; `internal/clearfacts/document_test.go` exercises the fake contract. |
+| AC-04 | `internal/gmailwatch/labels_test.go` checks label resolution and absence. Historical Phase 3 records the live five-message listing; no live call is made by this retrofit. |
+| AC-05 | Historical Phase 3 portal inspection: verify exactly one named test document appeared and was deleted. Preserve the recorded human evidence; an automated fake is not proof of portal appearance. |
+| AC-48 | `cmd/spike/statistics_test.go` checks success and no-working-type output; the historical Phase 3 probe records the external result. Legacy ID: AC-5b. |
+| AC-49 | `internal/clearfacts/upload_test.go` and the historical Phase 3 provenance-readback procedure. Compare this historical criterion with the later F-56 comment-only amendment before acceptance. Legacy ID: AC-5c. |
+| AC-06 | `internal/extract/extract_ac6_test.go` checks the three nested attachments against `testdata/nested-three-pdfs.eml`. |
+| AC-07 | `internal/extract/extract_ac7_test.go` checks protected-PDF staging; `internal/webui/handlers_test.go` checks that manual-handling items cannot be approved. |
+| AC-08 | `TestEngine_PRDSample_AC8` in `internal/rules/rules_test.go` checks the rule decisions and indices. |
+| AC-09 | `TestEngine_DefaultHeuristic_AC9` in `internal/rules/rules_test.go` checks fallback confidence. |
+| AC-10 | `TestPollReplayingSameHistoryResponseTwiceIsIdempotent` in `internal/gmailwatch/history_replay_test.go` checks replay behavior. |
+| AC-11 | `internal/queue/dedup_l2_test.go` checks byte-identical linking; `tests/e2e/pipeline_test.go` checks the upload path. |
+| AC-12 | `internal/queue/dedup_l3_l4_test.go` checks identity matching; `internal/webui/handlers_test.go` checks the duplicate badge and absence of automatic suppression. |
+| AC-13 | `internal/webui/handlers_test.go` checks the already-in-portal action and teaching display; `internal/queue/dedup_l3_l4_test.go` checks subsequent matching. |
+| AC-14 | `internal/webui/peppol_test.go` checks suppressed visibility and explicit override. |
+| AC-15 | `TestUploadOneAC15MultipartContract` in `internal/uploader/uploader_test.go` checks the upload fields. Compare the old tags clause with the later F-56 amendment before acceptance. |
+| AC-16 | `TestUploadOneAC16ProofOfDelivery` in `internal/uploader/uploader_test.go` and `internal/cli/find_test.go` check stored proof and CLI verdicts. |
+| AC-17 | `internal/uploader/uploader_test.go` checks three 503 responses followed by success and terminal 400 handling. |
+| AC-18 | `TestKillBetweenApprovedAndUploadThenRestartUploadsExactlyOnceAC18` in `internal/uploader/uploader_test.go` checks durable approval. |
+| AC-19 | `TestLabelAppliedOnlyOnceAllDocumentsUploadedAC19` in `internal/uploader/label_test.go` checks delayed, once-only label application. |
+| AC-20 | `internal/gmailwatch/reauth_test.go` checks nonfatal invalid_grant and recovery; `cmd/postbode/status_test.go` checks the reported auth state. |
+| AC-21 | `internal/webui/bind_test.go`, `internal/webui/handlers_test.go` and `internal/webui/token_test.go` check loopback binding, unauthenticated rejection and token-file permissions. LAN refusal is conditional on an available non-loopback interface. |
+| AC-22 | `make test && go vet ./...` and `make test-nonet`; `internal/testsupport/nonet.go` provides the existing outbound-network guard. |
+| AC-23 | `make e2e-dry` runs `tests/e2e/pipeline_test.go` against the fake mailbox and portal. |
+| AC-24 | `make check-gitignore` checks secret-path exclusions; `TestTokenRedaction` in `internal/clearfacts/token_test.go` and `TestPATNeverReachesALogLineEvenOnUploadFailure` in `internal/daemon/daemon_test.go` check redaction without exposing real secrets. |
+| AC-25 | Historical Phase 13 macOS procedure: inspect launchd registration, terminate the daemon and verify restart with queue state intact. This retrofit does not install or restart the app. |
+| AC-26 | Historical Phase 15 procedure: observe fourteen days of real invoice handling and portal duplicate counts. Existing observations must be reviewed; this retrofit does not claim a new live run. |
+| AC-27 | `internal/queue/rejection_memory_test.go` and `tests/e2e/pipeline_test.go` check that rejected documents do not restage. |
+| AC-28 | `TestNotifyStagedAndUploadCompleteEachInvokeExactlyOnce` in `internal/notify/messages_test.go` checks the fake notifier calls. |
+| AC-32 | `internal/webui/session_test.go` checks session-cookie authentication, recovery instructions and forged-cookie rejection. |
+| AC-33 | `internal/webui/token_stability_test.go` checks stable tokens, deliberate rotation and trailing-newline handling. |
+| AC-31 | `internal/daemon/responsiveness_test.go` checks nonblocking coalesced nudges and the separate upload interval; review the original five-second scenario with short intervals against the daemon fake harness. |
+| AC-29 | `internal/config/config_test.go` checks malformed configuration. The historical Phase 1/6 procedure uses a temporary home with invalid config, runs the daemon and verifies failure before a queue is created; it does not touch the live app. |
+| AC-30 | Review the recorded negative OQ-8 result and struck F-57 requirement. `cmd/spike/statistics_test.go` covers the no-working-type outcome. Withdrawal is historical, not a new passed vh-adlc criterion. |
+
+## Tasks
+
+None for this documentation retrofit. Prior implementation phases remain in the [historical plan](../../plans/postbode-gmail-invoice-agent.md).
+
+## Open Questions
+
+The unresolved legacy questions are retained; this format retrofit answers none of them.
+
+### Q2: Should the current response-based handling of ClearFacts size and rate limits change?
+
+**Recommendation:** Keep the existing F-51/F-54 handling until operational evidence justifies a change.
+
+| Option | You get | It costs |
+| --- | --- | --- |
+| A. Keep current limits and response handling | Existing 413/429 behavior and conservative defaults | Exact provider ceilings remain unknown |
+| B. Establish explicit provider ceilings first | More precise operational limits if evidence becomes available | Additional provider investigation |
+
+**Why this is yours:** The legacy OQ-2 record leaves the operational limit policy open.
+
+### Q5: Should the source of the portal's Auto-forward channel be investigated?
+
+**Recommendation:** Keep this as a separate channel-attribution question, as legacy OQ-5 records.
+
+| Option | You get | It costs |
+| --- | --- | --- |
+| A. Defer attribution | Existing local duplicate protection remains in force | The upstream channel remains unidentified |
+| B. Investigate the channel | Better vendor-channel attribution | Additional work with the accountant or provider |
+
+**Why this is yours:** The external forwarding channel is outside Postbode's mailbox and this retrofit.
+
+### Q6: Does real-corpus accuracy justify changing the identity-key fallback?
+
+**Recommendation:** Retain the existing badge-only behavior pending the corpus assessment in legacy OQ-6.
+
+| Option | You get | It costs |
+| --- | --- | --- |
+| A. Keep current heuristics | Existing review and duplicate-warning behavior | Parse accuracy remains unquantified |
+| B. Evaluate a sanitized corpus | Evidence for a later parser change | Corpus preparation and measurement |
+
+**Why this is yours:** The legacy record defers this tradeoff until there is real-corpus evidence.
+
+## Review Log
+
+| Date | Review | Kind | Commit | Model | Isolation | Outcome |
+| --- | --- | --- | --- | --- | --- | --- |
+
+review pending: No independent vh-adlc spec review has run for this converted document. Earlier implementation claims remain in the linked historical records and do not count as vh-adlc acceptance.
+
+## Sources
+
+- [Feature-document standard](https://github.com/vhco-pro/docs/blob/e4d58d2cd69bd42f1efacf91dfdd3f01a24e134a/conventions/feature-documents.md): frontmatter, sections, criteria and review semantics.
+- [Feature-document template](https://github.com/vhco-pro/docs/blob/e4d58d2cd69bd42f1efacf91dfdd3f01a24e134a/guides/feature-document-template.md): document structure.
+- [Prose guide](https://github.com/vhco-pro/docs/blob/e4d58d2cd69bd42f1efacf91dfdd3f01a24e134a/guides/humanize-prose.md): wording of the retrofit.
+- [Documentation conventions](https://github.com/vhco-pro/docs/blob/e4d58d2cd69bd42f1efacf91dfdd3f01a24e134a/conventions/documentation.md): preservation of authoritative records and plain wording.
+- [Delivery conventions](https://github.com/vhco-pro/docs/blob/e4d58d2cd69bd42f1efacf91dfdd3f01a24e134a/conventions/delivery.md): documentation commits and separation from implementation delivery.

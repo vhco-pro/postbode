@@ -15,8 +15,14 @@ only); everything else is a local SQLite database and a local spool
 directory.
 
 Source of truth for behaviour: `docs/specs/postbode-gmail-invoice-agent.spec.md`.
-Build sequence: `plans/postbode-gmail-invoice-agent.md`. Agent-facing rules:
-`CLAUDE.md`.
+Original build sequence: `plans/postbode-gmail-invoice-agent.md`. Agent-facing
+rules: [AGENTS.md](AGENTS.md).
+
+Development uses vh-adlc and the personal conventions pinned in `AGENTS.md`.
+New features have one document under `docs/specs/` containing the specification,
+tasks and review records. Existing `.spec.md` files use that format at their
+original paths and link the historical plans and summaries. Claude and Copilot
+use thin pointers to the same instructions.
 
 ## Human prerequisites
 
@@ -76,6 +82,17 @@ The `postbode` binary is a single static executable with subcommands
 The review UI is bound to `127.0.0.1` only and requires a session token; it
 is never reachable from the LAN.
 
+Notification clicks open this UI in your default browser. Postbode locates
+Homebrew's `terminal-notifier` even when launchd supplies only its minimal
+system PATH. If the helper is missing, the daemon logs that clicks are
+unavailable; run `postbode review` to open the page.
+
+If Gmail needs re-authentication, open `postbode review` and choose **Reconnect
+Gmail**. This action stays available after the notification disappears. Complete
+Google's consent page in the same browser; Postbode saves the replacement token
+in Keychain and resumes on its next poll without a restart. A declined or expired
+request can be retried from the review page. Queue decisions are preserved.
+
 ## When a message cannot be processed
 
 A message that fails repeatedly is **parked**: the poll stops waiting for it
@@ -125,9 +142,8 @@ make lint           # golangci-lint run on its own
 make e2e-dry        # full pipeline against fixtures/fakes, zero real network calls
 ```
 
-`make test` runs `check-gitignore` first (fails loudly on any secret pattern
-that isn't ignored — this repo has no git remote, so a committed secret
-cannot be force-pushed away), then the Go test suite, then `make lint`.
+`make test` runs `check-gitignore` first and rejects secret patterns that are
+not ignored, then runs the Go test suite and `make lint`.
 `make lint` fails with a clear message if `golangci-lint` isn't installed,
 rather than a confusing error.
 
@@ -142,7 +158,7 @@ live run (see the plan's Phase 15) confirms the product works.
 Postbode releases the same way every other `michielvha` Go app does:
 GitVersion-driven semver from conventional commits, GoReleaser-built signed
 artifacts, `golangci-lint` in the same shape as the source-of-truth
-`template-go-app`. See `CLAUDE.md`'s "Release engineering" section for the
+`template-go-app`. See `AGENTS.md`'s "Release engineering and commit messages" section for the
 full conventional-commit-to-version-bump table.
 
 - Tags are unprefixed (`0.1.4`, not `v0.1.4`), computed by GitVersion
@@ -158,8 +174,7 @@ full conventional-commit-to-version-bump table.
 - Release artifacts are zipped, checksummed (`SHA256SUMS`), and the checksum
   file is GPG-signed before the GitHub release is published.
 - `.github/workflows/build-and-release.yaml` runs `go vet`, `make test`,
-  `make test-nonet` and `golangci-lint` before tagging and releasing —
-  CI cannot run yet, since this repo currently has no git remote.
+  `make test-nonet` and `golangci-lint` before tagging and releasing.
 
 ## Opening the review queue
 
@@ -170,8 +185,8 @@ postbode review
 That reads the daemon's current session token and opens the UI. Afterwards
 `http://127.0.0.1:7391/` works directly in that browser — bookmark it.
 
-The token rotates whenever the daemon restarts. When it does, the page says so
-and names the command; just run `postbode review` again.
+The token survives daemon restarts. If it is deliberately replaced, run
+`postbode review` again to establish the new browser session.
 
 ## License
 

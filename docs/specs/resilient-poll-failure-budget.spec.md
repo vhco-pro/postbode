@@ -1,15 +1,37 @@
-## SPECIFICATION: Resilient poll — per-message failure budget and stall escalation
-
-**Version:** 1.0
-**Status:** Draft
-**Date:** 2026-08-25
-**Type:** feature
-**Slug:** resilient-poll-failure-budget
-**References:** GitHub issues [vhco-pro/postbode#1](https://github.com/vhco-pro/postbode/issues/1) *(Poll wedges indefinitely on any non-404 per-message error)* and [vhco-pro/postbode#2](https://github.com/vhco-pro/postbode/issues/2) *(A stalled poll is silent: no notification, no alert, only a repeating log line)*. Both filed after the same production outage, 2026-08-22 → 2026-08-25. Follow-up to commit `c92fdb8` (`fix(gmailwatch): skip deleted messages instead of wedging the poll`).
-**Relationship to the main spec:** this is a **separate, additive** spec. `docs/specs/postbode-gmail-invoice-agent.spec.md` (v1.10/v1.11, the P0+P1 build) is **not modified by this document**. New requirement ids start at **F-70** and new criteria at **AC-34**, both above that spec's maxima (F-67, AC-33), so the two id spaces never collide. Where this spec cites `F-nn` below 70, `NF-nn` below 14, `AC-nn` below 34, `G-n` or `L1…L4`, it means the main spec's requirement of that number and does not restate it.
-**Workflow:** [AGENTS.md](../../AGENTS.md) selects vh-adlc and the pinned personal conventions. Postbode is a Go macOS binary distributed through Homebrew and run as a launchd LaunchAgent. Engie platform conventions do not apply.
-
 ---
+title: "Resilient poll failure budget and stall escalation"
+type: feature
+slug: resilient-poll-failure-budget
+status: draft
+status_description: "Retrofitted to vh-adlc format; historical implementation claims are preserved, and vh-adlc review and acceptance are not recorded."
+issue: "https://github.com/vhco-pro/postbode/issues/1"
+goal: "Keep mailbox polling progressing when individual messages fail, while reporting parked mail and whole-poll stalls."
+created: "2026-08-25"
+version: "1.0"
+legacy_status: "Draft"
+covers:
+  - internal/gmailwatch/
+  - internal/queue/
+  - internal/config/
+  - internal/extract/
+  - internal/cli/
+  - internal/notify/
+  - internal/daemon/
+  - cmd/postbode/
+  - tests/e2e/
+related_issues:
+  - "https://github.com/vhco-pro/postbode/issues/2"
+---
+
+# Resilient poll failure budget and stall escalation
+
+## Context
+
+The implemented poll loop is `internal/gmailwatch/poll.go:25`; persistence lives in `internal/queue/message_failure.go:33` and `internal/queue/poll_failure.go:25`. The incident description below records the pre-fix state. Earlier implementation results remain in the historical summary; this retrofit does not create a new acceptance or review.
+
+GitHub issues [vhco-pro/postbode#1](https://github.com/vhco-pro/postbode/issues/1) *(Poll wedges indefinitely on any non-404 per-message error)* and [vhco-pro/postbode#2](https://github.com/vhco-pro/postbode/issues/2) *(A stalled poll is silent: no notification, no alert, only a repeating log line)*. Both filed after the same production outage, 2026-08-22 → 2026-08-25. Follow-up to commit `c92fdb8` (`fix(gmailwatch): skip deleted messages instead of wedging the poll`).
+
+this is a **separate, additive** spec. `docs/specs/postbode-gmail-invoice-agent.spec.md` (v1.10/v1.11, the P0+P1 build) is **not modified by this document**. New requirement ids start at **F-70** and new criteria at **AC-34**, both above that spec's maxima (F-67, AC-33), so the two id spaces never collide. Where this spec cites `F-nn` below 70, `NF-nn` below 14, `AC-nn` below 34, `G-n` or `L1…L4`, it means the main spec's requirement of that number and does not restate it.
 
 ### 1. Overview
 
@@ -25,7 +47,27 @@ This is the **inbound-side counterpart to F-51** (`item.first_failed_at` / `retr
 
 **Parking is not dropping.** Under **G-1** — *silently dropping a real invoice is worse than letting a duplicate through* — a parked message must stay loud, bounded and recoverable. It is surfaced by notification and by `postbode status`, it is retried automatically after a cooldown, it can be retried on demand, and it is **never** aged out, garbage-collected or forgotten.
 
----
+## Scope
+
+Bound per-message failures, preserve retryable mail, and report stalls without changing approval or duplicate-prevention decisions.
+
+### 9. Out of Scope
+
+Explicitly **not** covered:
+
+- **A review-UI surface for parked messages.** Developer decision: notification + `postbode status` only (F-86). A parked message has no document to review.
+- **Any auto-approve or auto-upload path.** Unchanged from the main spec: every upload requires human approval (G-3, CLAUDE.md).
+- **Changing the 404 handling from `c92fdb8`.** Preserved exactly; this spec only forbids conflating it with parking (F-73b, AC-36).
+- **Re-classifying which errors are *retryable* on the ClearFacts side.** F-51's outbound retry/give-up policy is untouched; this spec is inbound-only.
+- **A digest or summary notification** when many messages park at once. One notification per park, per F-74's notify-once mirror of F-16. Revisit if a real incident produces notification spam.
+- **Automatic root-cause classification of park reasons** (grouping "disk full" versus "malformed MIME" into distinct states). The reason is recorded and reported verbatim; interpreting it stays human work.
+- **Aging out, archiving or garbage-collecting parked messages** — forbidden by F-79, not deferred.
+- **Health-check endpoints, telemetry or remote alerting.** Notifications are local `osascript` only; no cloud component, no telemetry (NF-05).
+- **Engie platform artifacts:** no Kubernetes, container image, Argo CD or cloud secret manager. Postbode remains a local macOS binary managed by launchd.
+
+## Design
+
+`internal/gmailwatch/poll.go:25` coordinates the budget and retry paths. The numbered sections retain the original requirements, contracts and decision history.
 
 ### 2. Goals & Success Metrics
 
@@ -37,8 +79,6 @@ This is the **inbound-side counterpart to F-51** (`item.first_failed_at` / `retr
 | G-73 | A stalled daemon announces itself | Time from "the daemon stops making progress" to "a human is notified" ≤ `gmail.poll_failure_budget × gmail.poll_interval` (default 3 × 5m = 15 min), versus the 3 days observed in the 2026-08-22 outage. Exactly one notification per stall episode. AC-43. |
 | G-74 | "Is it working?" is answerable in words, not arithmetic | `postbode status` states poll health and parked messages explicitly; no reader has to subtract two timestamps to discover a stall. AC-40, AC-43. |
 | G-75 | The 404 fix does not regress | `c92fdb8`'s behaviour is preserved bit-for-bit: a 404 is skipped immediately, consumes no budget, and is never conflated with parking. AC-36. |
-
----
 
 ### 3. Functional Requirements
 
@@ -77,8 +117,6 @@ Priority scale: **P0** = blocker for this feature shipping · **P1** = important
 |---|---|---|---|
 | F-87 | P0 | Four new keys under `gmail:` in `~/.config/postbode/config.yaml`, all with defaults, all validated by the existing F-29 line-number-naming loader: `failure_budget` (int, default **3**), `park_retry_cooldown` (duration, default **6h**), `park_retry_attempts` (int, default **3**), `poll_failure_budget` (int, default **3**). | `internal/config` walks the parsed `yaml.Node` tree against an explicit per-level allow-list, so these keys must be added to that allow-list or a config containing them fails to load — a hard, easy-to-miss coupling. Values ≤ 0 are rejected at load with the offending line number (F-29): a `failure_budget: 0` would park every message on its first hiccup, which is a G-1 hazard dressed as a config typo. |
 
----
-
 ### 4. Non-Functional Requirements
 
 | ID | Category | Requirement |
@@ -89,8 +127,6 @@ Priority scale: **P0** = blocker for this feature shipping · **P1** = important
 | NF-17 | Privacy | Park reasons, `last_error` values, notifications and log lines contain **no message body and no attachment content** (F-65), and the ClearFacts PAT and any OAuth token are redacted (F-55). Error text persisted into `last_error` is truncated (≤ 500 chars) so a pathological error string cannot bloat the database or a notification. |
 | NF-18 | Performance | The additional per-poll work is one indexed read of due retries plus, only on failure, one small upsert. A healthy poll over ≤ 200 new messages must stay within NF-08's < 30 s budget with no measurable regression. |
 | NF-19 | Compatibility | Existing behaviour that other criteria depend on is unchanged: F-16 / AC-20 (re-auth), `c92fdb8` / AC-10 / the `internal/gmailwatch/deleted_message_test.go` 404 tests, F-30's L1 skip for ordinary (non-parked) messages, and F-13's fallback semantics. This feature adds paths; it removes none. |
-
----
 
 ### 5. Data Model & Flows
 
@@ -159,8 +195,6 @@ stateDiagram-v2
   Stalled --> Healthy: poll persists sync_state<br/>count = 0, episode cleared
   Degraded --> Healthy: poll persists sync_state<br/>count = 0
 ```
-
----
 
 ### 6. API / Interface Contracts
 
@@ -237,29 +271,6 @@ gmail:
   poll_failure_budget: 3     # F-81/F-82 — consecutive whole-poll failures before escalating
 ```
 
----
-
-### 7. Acceptance Criteria
-
-Every criterion below runs against `internal/gmailwatch/fake` + `httptest` and the `testdata` corpus. **None contacts a real Google or ClearFacts endpoint** (NF-16, NF-09, CLAUDE.md). New criteria are numbered from **AC-34**, above the main spec's AC-33.
-
-- [ ] **AC-34:** Given a poll listing message ids `[A, B, C]` where `B`'s `messages.get` is scripted to return `500` on every call: polls 1 and 2 return an error and leave `sync_state.history_id` unchanged; poll 3 parks `B`, processes `C`, and persists `sync_state` with an advanced `history_id`. After poll 3, `A` and `C` have staged items and `B` is listed by `ListParkedMessages` with `failure_count == 3`. A fourth poll stages nothing new, parks nothing new and does not error. *(F-70, F-71, F-72, NF-14)*
-- [ ] **AC-35:** A message whose `messages.get` fails twice and then succeeds is **never** parked: after the third poll it has staged items, `ListParkedMessages` is empty, no park notification was sent, and the `message_failure` row for that id no longer exists (`failure_count` reset to zero). *(F-70, G-72)*
-- [ ] **AC-36 — regression guard on `c92fdb8`:** A message whose `messages.get` returns `404` is skipped on the **first** poll with the existing `skip (gone)` log line, consumes **no** budget (no `message_failure` row is created), is **not** parked, raises no notification, and the same poll persists `sync_state`. The existing `internal/gmailwatch/deleted_message_test.go` tests continue to pass unmodified. *(F-73b, G-75, NF-19)*
-- [ ] **AC-37:** A poll cancelled mid-loop (context cancelled while `messages.get` is in flight) creates **no** `message_failure` row and increments no counter for the in-flight message; the next poll with a live context processes that message normally. *(F-73c)*
-- [ ] **AC-38:** With the fake OAuth server returning `invalid_grant` mid-loop, behaviour is byte-for-byte AC-20's: `handleReauth` runs, exactly one re-auth notification is sent, no queue row changes, **no** `message_failure` row is created for the in-flight message, and no message is parked. *(F-73a, NF-19)*
-- [ ] **AC-39:** Parking a message invokes the fake notifier **exactly once**, with a message containing the `gmail_message_id`, the failure count and the truncated reason. A second and third poll that re-encounter the same parked message (before its cooldown is due) invoke the notifier **zero** further times. `osascript` is never executed — the notifier is behind the existing interface. *(F-74)*
-- [ ] **AC-40:** With one parked message, `postbode status` output contains a `parked messages:` section listing that `gmail_message_id`, its failure count, its last error and its last attempt time, plus either an auto-retry timestamp or `auto-retry exhausted` with the exact `postbode retry <id>` command. With none parked, the section prints `parked messages:  0` rather than being omitted. Asserted against `cli.FormatStatus` with an injected `now`. *(F-85, F-84, G-74)*
-- [ ] **AC-41:** `postbode retry <id>` on a parked message exits 0, makes the message immediately due for another attempt, and the **next poll reprocesses that message and stages its documents even though `history_id` has advanced past it and no listing returns it** (§5.3 admission path). `postbode retry --all` unparks every parked message and reports the count. `postbode retry` with no argument exits **2** and changes nothing; `postbode retry <unknown-id>` exits non-zero naming the id. The write succeeds while a second connection holds the same database open (WAL + `busy_timeout`). *(F-77, §5.3, §6.1)*
-- [ ] **AC-42:** With `park_retry_cooldown: 1ms` and `park_retry_attempts: 2` (injected clock or tiny durations), a parked message whose failure persists is retried automatically twice and no more; each retry **re-parks on the first failure without aborting the poll** — every one of those poll cycles still persists `sync_state` and still processes the messages behind it — and after the second retry the message reports `auto-retry exhausted` while remaining in `ListParkedMessages`. A parked message whose underlying failure has healed is processed successfully on its first automatic retry, stages its documents, and its `message_failure` row disappears. *(F-75, F-76, F-79)*
-- [ ] **AC-43:** With `history.list` scripted to fail with `503` on every call and `poll_failure_budget: 3`: polls 1–2 notify nothing; poll 3 invokes the notifier **exactly once** with a message naming the consecutive failure count and the last error; polls 4–10 invoke it **zero** further times; `postbode status` prints a `poll health: NOT MAKING PROGRESS` line naming the count and the episode start. Once `history.list` succeeds, the counter resets, `postbode status` prints `poll health: ok`, and a subsequent new stall episode notifies again exactly once. Separately: a purely per-message stall that ends in a park emits the **park** notification only — never both — for that cycle. *(F-81, F-82, F-83, F-84, G-73)*
-- [ ] **AC-44:** Parked state, failure counts, retry schedules and the notify-once markers survive closing and reopening the database (a daemon restart): reopening does **not** re-notify, does **not** reset any counter, and does **not** restart the cooldown from zero. A `PruneSpool` / retention pass with `retention_days` set to prune-everything leaves every parked message present and reported. *(NF-15, F-79, G-71)*
-- [ ] **AC-45 — the silent-miss guard:** A message that reaches `RecordMessageIfNew` and then fails during staging is parked; on retry it is **re-extracted rather than L1-skipped**, and its documents reach the queue. The retry produces **no** second uploadable item for a byte-identical document — the duplicate links as `duplicate_linked` via L2 exactly as AC-11 requires — and a document previously rejected stays rejected via F-44. *(F-78, G-1, G-2)*
-- [ ] **AC-46:** `make test && go vet ./...` passes and the whole suite passes with the AC-22 in-process non-loopback dialer guard active: every failure shape in AC-34…AC-45 is produced by `fake.Server` / `fake.APIError` / `httptest`, and zero tests reference `gmail.googleapis.com` or `api.clearfacts.be`. *(NF-16, NF-09, NF-12)*
-- [ ] **AC-47:** A `config.yaml` containing all four new `gmail:` keys loads with those values; one containing `failure_budget: 0` (and, separately, `park_retry_attempts: -1`) is rejected at startup with the offending **line number**, and the daemon does not start. Omitting all four yields the documented defaults 3 / 6h / 3 / 3. *(F-87, F-29)*
-
----
-
 ### 8. Edge Cases & Error Handling
 
 | Scenario | Expected behaviour | Trace |
@@ -280,24 +291,6 @@ Every criterion below runs against `internal/gmailwatch/fake` + `httptest` and t
 | Enormous error string from the API | Truncated to ≤ 500 chars before persisting or notifying | NF-17 |
 | Clock jumps backwards (sleep/wake) | `next_retry_at` in the future simply delays the retry; a due-time in the past fires on the next tick. No unbounded catch-up loop, because at most one retry attempt per message per poll cycle is admitted | F-75, §5.3 |
 | 100 messages parked | `postbode status` lists them oldest-first; the notification is per-park, so no digest is attempted in this version | F-85, §9 |
-
----
-
-### 9. Out of Scope
-
-Explicitly **not** covered:
-
-- **A review-UI surface for parked messages.** Developer decision: notification + `postbode status` only (F-86). A parked message has no document to review.
-- **Any auto-approve or auto-upload path.** Unchanged from the main spec: every upload requires human approval (G-3, CLAUDE.md).
-- **Changing the 404 handling from `c92fdb8`.** Preserved exactly; this spec only forbids conflating it with parking (F-73b, AC-36).
-- **Re-classifying which errors are *retryable* on the ClearFacts side.** F-51's outbound retry/give-up policy is untouched; this spec is inbound-only.
-- **A digest or summary notification** when many messages park at once. One notification per park, per F-74's notify-once mirror of F-16. Revisit if a real incident produces notification spam.
-- **Automatic root-cause classification of park reasons** (grouping "disk full" versus "malformed MIME" into distinct states). The reason is recorded and reported verbatim; interpreting it stays human work.
-- **Aging out, archiving or garbage-collecting parked messages** — forbidden by F-79, not deferred.
-- **Health-check endpoints, telemetry or remote alerting.** Notifications are local `osascript` only; no cloud component, no telemetry (NF-05).
-- **Engie platform artifacts:** no Kubernetes, container image, Argo CD or cloud secret manager. Postbode remains a local macOS binary managed by launchd.
-
----
 
 ### 10. Open Questions
 
@@ -329,8 +322,6 @@ Explicitly **not** covered:
 - **A-79 — The stall notification is suppressed on a cycle that already parked something (F-83).** With both budgets defaulting to 3, a purely per-message stall crosses both thresholds on the same tick; the park notification is strictly more informative and the poll is unwedged by the park itself. *[Risk: low — if this proves wrong the fix is to notify both, which is additive]*
 - **A-80 — Reused vocabulary, separate state.** F-51's field names are reused verbatim where the meaning matches (§5.2's mapping table) and the counting/notify-once logic is implemented once and shared between F-70 and F-81, but the two counters live in different rows because a per-message count and a singleton poll count are not the same state. *[Risk: low]*
 - **A-81 — No external platform fact is load-bearing in this spec.** The only third-party contract involved is Gmail's `404 notFound` on `messages.get` for a deleted message, which was established **empirically from this daemon's own production log** during the 2026-08-22 → 2026-08-25 incident and is already encoded in `internal/gmailwatch/gone.go`. No claim here rests on model memory about a vendor's current behaviour. *[Risk: low]*
-
----
 
 ### 11. Planner Handoff Notes
 
@@ -380,3 +371,88 @@ Explicitly **not** covered:
 | Test corpus for the failure shapes (fake scripting) | NF-16, AC-34…AC-47 | **L** |
 
 **Traceability note for the planner:** every Test Plan row must cite an `AC-n` from §7, and every `AC-n` cites an `F-nn`/`NF-nn` from this spec. **F-72, F-73, F-74, F-78 and F-79 are the G-1 spine of this feature and may not be descoped without an explicit spec revision** — each of them, individually, is the difference between "parked loudly and recoverably" and "silently dropped".
+
+## Acceptance Criteria
+
+### 7. Acceptance Criteria
+
+Every criterion below runs against `internal/gmailwatch/fake` + `httptest` and the `testdata` corpus. **None contacts a real Google or ClearFacts endpoint** (NF-16, NF-09, CLAUDE.md). New criteria are numbered from **AC-34**, above the main spec's AC-33.
+
+- [ ] AC-34: Given a poll listing message ids `[A, B, C]` where `B`'s `messages.get` is scripted to return `500` on every call: polls 1 and 2 return an error and leave `sync_state.history_id` unchanged; poll 3 parks `B`, processes `C`, and persists `sync_state` with an advanced `history_id`. After poll 3, `A` and `C` have staged items and `B` is listed by `ListParkedMessages` with `failure_count == 3`. A fourth poll stages nothing new, parks nothing new and does not error. *(F-70, F-71, F-72, NF-14)*
+- [ ] AC-35: A message whose `messages.get` fails twice and then succeeds is **never** parked: after the third poll it has staged items, `ListParkedMessages` is empty, no park notification was sent, and the `message_failure` row for that id no longer exists (`failure_count` reset to zero). *(F-70, G-72)*
+- [ ] AC-36: regression guard on `c92fdb8`: A message whose `messages.get` returns `404` is skipped on the **first** poll with the existing `skip (gone)` log line, consumes **no** budget (no `message_failure` row is created), is **not** parked, raises no notification, and the same poll persists `sync_state`. The existing `internal/gmailwatch/deleted_message_test.go` tests continue to pass unmodified. *(F-73b, G-75, NF-19)*
+- [ ] AC-37: A poll cancelled mid-loop (context cancelled while `messages.get` is in flight) creates **no** `message_failure` row and increments no counter for the in-flight message; the next poll with a live context processes that message normally. *(F-73c)*
+- [ ] AC-38: With the fake OAuth server returning `invalid_grant` mid-loop, behaviour is byte-for-byte AC-20's: `handleReauth` runs, exactly one re-auth notification is sent, no queue row changes, **no** `message_failure` row is created for the in-flight message, and no message is parked. *(F-73a, NF-19)*
+- [ ] AC-39: Parking a message invokes the fake notifier **exactly once**, with a message containing the `gmail_message_id`, the failure count and the truncated reason. A second and third poll that re-encounter the same parked message (before its cooldown is due) invoke the notifier **zero** further times. `osascript` is never executed — the notifier is behind the existing interface. *(F-74)*
+- [ ] AC-40: With one parked message, `postbode status` output contains a `parked messages:` section listing that `gmail_message_id`, its failure count, its last error and its last attempt time, plus either an auto-retry timestamp or `auto-retry exhausted` with the exact `postbode retry <id>` command. With none parked, the section prints `parked messages:  0` rather than being omitted. Asserted against `cli.FormatStatus` with an injected `now`. *(F-85, F-84, G-74)*
+- [ ] AC-41: `postbode retry <id>` on a parked message exits 0, makes the message immediately due for another attempt, and the **next poll reprocesses that message and stages its documents even though `history_id` has advanced past it and no listing returns it** (§5.3 admission path). `postbode retry --all` unparks every parked message and reports the count. `postbode retry` with no argument exits **2** and changes nothing; `postbode retry <unknown-id>` exits non-zero naming the id. The write succeeds while a second connection holds the same database open (WAL + `busy_timeout`). *(F-77, §5.3, §6.1)*
+- [ ] AC-42: With `park_retry_cooldown: 1ms` and `park_retry_attempts: 2` (injected clock or tiny durations), a parked message whose failure persists is retried automatically twice and no more; each retry **re-parks on the first failure without aborting the poll** — every one of those poll cycles still persists `sync_state` and still processes the messages behind it — and after the second retry the message reports `auto-retry exhausted` while remaining in `ListParkedMessages`. A parked message whose underlying failure has healed is processed successfully on its first automatic retry, stages its documents, and its `message_failure` row disappears. *(F-75, F-76, F-79)*
+- [ ] AC-43: With `history.list` scripted to fail with `503` on every call and `poll_failure_budget: 3`: polls 1–2 notify nothing; poll 3 invokes the notifier **exactly once** with a message naming the consecutive failure count and the last error; polls 4–10 invoke it **zero** further times; `postbode status` prints a `poll health: NOT MAKING PROGRESS` line naming the count and the episode start. Once `history.list` succeeds, the counter resets, `postbode status` prints `poll health: ok`, and a subsequent new stall episode notifies again exactly once. Separately: a purely per-message stall that ends in a park emits the **park** notification only — never both — for that cycle. *(F-81, F-82, F-83, F-84, G-73)*
+- [ ] AC-44: Parked state, failure counts, retry schedules and the notify-once markers survive closing and reopening the database (a daemon restart): reopening does **not** re-notify, does **not** reset any counter, and does **not** restart the cooldown from zero. A `PruneSpool` / retention pass with `retention_days` set to prune-everything leaves every parked message present and reported. *(NF-15, F-79, G-71)*
+- [ ] AC-45: the silent-miss guard: A message that reaches `RecordMessageIfNew` and then fails during staging is parked; on retry it is **re-extracted rather than L1-skipped**, and its documents reach the queue. The retry produces **no** second uploadable item for a byte-identical document — the duplicate links as `duplicate_linked` via L2 exactly as AC-11 requires — and a document previously rejected stays rejected via F-44. *(F-78, G-1, G-2)*
+- [ ] AC-46: `make test && go vet ./...` passes and the whole suite passes with the AC-22 in-process non-loopback dialer guard active: every failure shape in AC-34…AC-45 is produced by `fake.Server` / `fake.APIError` / `httptest`, and zero tests reference `gmail.googleapis.com` or `api.clearfacts.be`. *(NF-16, NF-09, NF-12)*
+- [ ] AC-47: A `config.yaml` containing all four new `gmail:` keys loads with those values; one containing `failure_budget: 0` (and, separately, `park_retry_attempts: -1`) is rejected at startup with the offending **line number**, and the daemon does not start. Omitting all four yields the documented defaults 3 / 6h / 3 / 3. *(F-87, F-29)*
+
+## Test Plan
+
+| Criterion | Proof |
+| --- | --- |
+| AC-34 | `TestPollParksAtBudgetAndDrainsTheRest` in `internal/gmailwatch/park_test.go` and `tests/e2e/resilience_test.go` check the three-poll budget and mailbox progress. |
+| AC-35 | `TestTransientFailureSelfHealsAndNeverParks` in `internal/gmailwatch/park_test.go` checks a healed message. |
+| AC-36 | `internal/gmailwatch/deleted_message_test.go`, `TestGoneMessageConsumesNoBudget` in `internal/gmailwatch/park_test.go` and `internal/gmailwatch/budget_internal_test.go` check the 404 exclusion. |
+| AC-37 | `TestCancelledPollConsumesNoBudget` in `internal/gmailwatch/park_test.go` and `internal/gmailwatch/budget_internal_test.go` check cancellation. |
+| AC-38 | `internal/gmailwatch/reauth_test.go` checks invalid_grant, queue preservation and absence of message-failure rows. |
+| AC-39 | `TestParkNotifiesExactlyOnce` in `internal/gmailwatch/park_test.go` checks notification counts across polls. |
+| AC-40 | `internal/cli/status_parked_test.go` checks parked-state and explicit-zero reporting. |
+| AC-41 | `internal/cli/retry_test.go`, `cmd/postbode/retry_test.go`, `TestManualRetryReachesAMessageNoListingReturns` in `internal/gmailwatch/stall_test.go` and `tests/e2e/resilience_test.go` check manual retry and admission. |
+| AC-42 | `TestAutomaticRetryIsBoundedAndNeverRewedgesThePoll` and `TestAutomaticRetryRecoversAHealedMessage` in `internal/gmailwatch/stall_test.go` check bounded retry and recovery. |
+| AC-43 | `internal/gmailwatch/stall_test.go`, `internal/queue/poll_failure_test.go` and `internal/cli/status_parked_test.go` check escalation, suppression, reset and reporting. |
+| AC-44 | `internal/queue/message_failure_test.go`, `internal/queue/poll_failure_test.go` and `internal/queue/park_retention_test.go` check reopening and retention. |
+| AC-45 | `internal/extract/force_reextract_test.go` and `tests/e2e/resilience_test.go` check retry-only L1 bypass, duplicate prevention and rejection memory. |
+| AC-46 | `make test && go vet ./...` and `make test-nonet` run the repository gates against local fakes. |
+| AC-47 | `internal/config/resilience_keys_test.go` checks the four settings, defaults and line-numbered validation errors. |
+
+## Tasks
+
+None for this documentation retrofit. Prior implementation phases remain in the [historical plan](../../plans/resilient-poll-failure-budget.md) and [implementation summary](../../summaries/resilient-poll-failure-budget.md).
+
+## Open Questions
+
+The two legacy follow-up questions remain open; the retrofit keeps the existing defaults and contract.
+
+### Q70: Should the default automatic-retry cooldowns change after observing real parks?
+
+**Recommendation:** Retain the current 6h, 12h and 24h schedule with three attempts until the operational assessment in OQ-70.
+
+| Option | You get | It costs |
+| --- | --- | --- |
+| A. Keep current defaults | Existing bounded retry behavior | Suitability still needs operational evidence |
+| B. Tune the defaults from observed parks | A schedule informed by actual failures | A separate behavior change and review |
+
+**Why this is yours:** The original spec identifies these durations as an operational judgment.
+
+### Q71: Should parked or stalled states change the CLI exit-status contract?
+
+**Recommendation:** Preserve the current behavior for this format-only conversion.
+
+| Option | You get | It costs |
+| --- | --- | --- |
+| A. Keep the current contract | Existing command consumers keep their behavior | Park or stall detection still relies on reported state |
+| B. Add nonzero exit statuses for those states | A new signal for scripts | A separate compatibility decision and tests |
+
+**Why this is yours:** Legacy OQ-71 explicitly deferred this behavior change.
+
+## Review Log
+
+| Date | Review | Kind | Commit | Model | Isolation | Outcome |
+| --- | --- | --- | --- | --- | --- | --- |
+
+review pending: No independent vh-adlc spec review has run for this converted document. Earlier implementation claims remain in the linked historical records and do not count as vh-adlc acceptance.
+
+## Sources
+
+- [Feature-document standard](https://github.com/vhco-pro/docs/blob/e4d58d2cd69bd42f1efacf91dfdd3f01a24e134a/conventions/feature-documents.md): frontmatter, sections, criteria and review semantics.
+- [Feature-document template](https://github.com/vhco-pro/docs/blob/e4d58d2cd69bd42f1efacf91dfdd3f01a24e134a/guides/feature-document-template.md): document structure.
+- [Prose guide](https://github.com/vhco-pro/docs/blob/e4d58d2cd69bd42f1efacf91dfdd3f01a24e134a/guides/humanize-prose.md): wording of the retrofit.
+- [Documentation conventions](https://github.com/vhco-pro/docs/blob/e4d58d2cd69bd42f1efacf91dfdd3f01a24e134a/conventions/documentation.md): preservation of authoritative records and plain wording.
+- [Delivery conventions](https://github.com/vhco-pro/docs/blob/e4d58d2cd69bd42f1efacf91dfdd3f01a24e134a/conventions/delivery.md): documentation commits and separation from implementation delivery.

@@ -13,6 +13,10 @@ lifecycle: transactional
 
 # Plan: Postbode — Gmail to ClearFacts/QPS Invoice Agent
 
+Historical plan. The [feature document](../docs/specs/postbode-gmail-invoice-agent.spec.md)
+now holds the vh-adlc scope, criteria, test plan and lifecycle. The phase status
+and metadata below predate vh-adlc and do not establish a current acceptance.
+
 This plan sequences PRD phases **P0 (spike)** and **P1 (MVP)** of Postbode into 15 phases, mapping every phase to the 28 acceptance criteria already defined in spec v1.2 §7 (`AC-1`…`AC-26` plus `AC-5b`/`AC-5c`). No new AC ids are invented; requirements the spec left without an AC are covered by a supplementary `F-nn`-keyed verification table (§Test Plan, part B) and flagged in §Open Questions.
 
 ---

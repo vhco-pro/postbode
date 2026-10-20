@@ -26,15 +26,18 @@ including its scope, design, criteria, tasks and review records. Use the install
 vh-adlc skills and verified binary to resolve knowledge, locate documents, lint,
 review and check status changes. Do not create companion plans or summaries.
 
-The existing `*.spec.md`, `plans/`, `summaries/` and `decisions/` files retain the
-requirements and evidence from earlier work. They are legacy references, not
-vh-adlc status or acceptance records. Preserve their paths and requirement IDs.
-The installed `find --slug` does not discover the legacy `.spec.md` names.
-Check `docs/specs/_index.md` and `<slug>.spec.md` before creating a document,
-even when `vh-adlc find` returns no match.
-Before extending a legacy feature, adapt its existing feature document in place
-through vh-adlc's spec workflow and link its old plan and summary as history.
-Never infer a vh-adlc review or acceptance from an old completion claim.
+The existing `*.spec.md` files now use vh-adlc YAML frontmatter and required
+sections. Preserve their paths and the `legacy_criterion_ids` mappings when
+following older requirement references. `vh-adlc find --slug` discovers both
+`.md` and `.spec.md` files with valid YAML frontmatter. Check the feature index
+before creating a document and extend the existing document for the same topic.
+
+The old `plans/`, `summaries/` and `decisions/` files retain historical phase
+details and evidence. Feature documents link those records. Their
+`legacy_status` field preserves earlier implementation claims; only `status`
+controls the vh-adlc lifecycle. Never infer a vh-adlc review or acceptance from
+an old completion claim. The initial format retrofit remains draft pending
+review, even for behavior already implemented in the running app.
 
 ## Local commands and constraints
 

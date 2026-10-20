@@ -1,7 +1,11 @@
-# Plan Index
+# Legacy plan index
+
+These plans record earlier work. New vh-adlc features keep their tasks in a
+single document under `docs/specs/`, as [AGENTS.md](../AGENTS.md) requires.
 
 | Plan | Status | Created | Description |
 |------|--------|---------|-------------|
+| [notification-browser-recovery](./notification-browser-recovery.md) | implemented | 2026-10-20 | Notification browser actions and persistent Gmail reconnection; macOS permission enabled and delivery verified. |
 | [postbode-gmail-invoice-agent](./postbode-gmail-invoice-agent.md) | not-started | 2026-08-03 | 15-phase build of Postbode, a macOS launchd Go daemon that turns Gmail purchase-invoice attachments into human-approved ClearFacts uploads with four-layer local duplicate prevention (PRD P0 + P1). Spec: [postbode-gmail-invoice-agent.spec.md](../docs/specs/postbode-gmail-invoice-agent.spec.md). |
 | [resilient-poll-failure-budget](./resilient-poll-failure-budget.md) | not-started | 2026-08-25 | 9-phase build of the per-message failure budget, park-and-continue poll loop, retry admission with a retry-scoped L1 bypass, whole-poll stall escalation, and the `postbode retry` / `postbode status` ops surfaces (issues #1 and #2). Spec: [resilient-poll-failure-budget.spec.md](../docs/specs/resilient-poll-failure-budget.spec.md). |
 
