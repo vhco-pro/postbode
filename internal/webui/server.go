@@ -36,6 +36,7 @@ type Server struct {
 	// instead of waiting for its next tick — see Daemon.Nudge. It must not
 	// block: the handler calls it on the request path.
 	OnApprove func()
+	GmailAuth *GmailAuth
 }
 
 // NewServer builds a Server bound to db and protected by token. token
@@ -59,6 +60,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /logo.png", s.handleLogo)
 	mux.HandleFunc("GET /favicon.ico", s.handleLogo)
 	mux.HandleFunc("GET /{$}", s.requireToken(s.handleList))
+	mux.HandleFunc("POST /auth/gmail/start", s.requireToken(s.handleGmailAuthStart))
+	// Google returns without the Strict review cookie. Browser-bound, expiring
+	// OAuth state authenticates this single-use callback instead.
+	mux.HandleFunc("GET /auth/gmail/callback", s.handleGmailAuthCallback)
 	mux.HandleFunc("GET /preview/{id}", s.requireToken(s.handlePreview))
 	mux.HandleFunc("POST /items/{id}/approve", s.requireToken(s.handleApprove))
 	mux.HandleFunc("POST /items/{id}/reject", s.requireToken(s.handleReject))
@@ -101,6 +106,8 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 // "t", compared in constant time. Every route but /healthz is wrapped.
 func (s *Server) requireToken(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return

@@ -1,8 +1,7 @@
 // Package notify sends macOS user notifications for Postbode's two F-45
 // events: a batch of items staged for review, and an upload batch
-// completing. Production notifications shell out to `osascript`; every
-// caller depends on the Notifier interface instead, so tests exercise Fake
-// and never execute osascript (AC-28, NF-09).
+// completing. Production prefers terminal-notifier, with an osascript fallback.
+// Callers use Notifier so tests never post desktop notifications (AC-28, NF-09).
 package notify
 
 import (
@@ -19,7 +18,7 @@ type Notifier interface {
 	Notify(ctx context.Context, message string) error
 }
 
-// OSAScript is the production Notifier (F-45): one `osascript -e 'display
+// OSAScript is the fallback Notifier (F-45): one `osascript -e 'display
 // notification ...'` invocation per call, under the "Postbode" title.
 type OSAScript struct{}
 
@@ -38,29 +37,24 @@ func (OSAScript) Notify(ctx context.Context, message string) error {
 // TerminalNotifier posts via terminal-notifier(1) instead of osascript, so
 // the notification can actually open the review queue when clicked.
 //
-// osascript's `display notification` posts the notification *as Script
-// Editor*, because that is the app hosting the script. macOS then attributes
-// the click to that app, so pressing "Show" opens Script Editor — which is
-// what a user reasonably reads as broken. There is no way to attach an
-// action, or to change the owning app, from osascript: the notification
-// belongs to whichever bundle posted it. terminal-notifier is a real app
-// bundle and supports -open, which is the whole reason it exists.
-//
-// OpenURL is deliberately the bare loopback URL with no token in it. The
-// session token is stable and the browser keeps a cookie from any previous
-// `postbode review`, so the plain URL works — and a token in a notification
-// would be persisted by Notification Center for no benefit.
+// AppleScript cannot attach a click action. terminal-notifier supports both
+// -open and -execute; production uses the latter to run `postbode review` with
+// the current token, without persisting that token in Notification Center.
 type TerminalNotifier struct {
 	// Path is the resolved terminal-notifier binary.
 	Path string
 	// OpenURL is opened when the notification is clicked.
 	OpenURL string
+	// Execute is a shell-quoted absolute command, without session secrets.
+	Execute string
 }
 
 // Notify posts message via terminal-notifier.
 func (t TerminalNotifier) Notify(ctx context.Context, message string) error {
 	args := []string{"-title", "Postbode", "-message", message}
-	if t.OpenURL != "" {
+	if t.Execute != "" {
+		args = append(args, "-execute", t.Execute)
+	} else if t.OpenURL != "" {
 		args = append(args, "-open", t.OpenURL)
 	}
 	if err := exec.CommandContext(ctx, t.Path, args...).Run(); err != nil {
@@ -78,10 +72,31 @@ func (t TerminalNotifier) Notify(ctx context.Context, message string) error {
 // Homebrew formula depends on terminal-notifier so the good path is the
 // default for anyone who installed via brew.
 func Best(openURL string) Notifier {
-	if path, err := exec.LookPath("terminal-notifier"); err == nil {
+	if path := helperPath(exec.LookPath); path != "" {
 		return TerminalNotifier{Path: path, OpenURL: openURL}
 	}
 	return OSAScript{}
+}
+
+// BestReview opens the review UI using the current token even in a browser
+// without a session cookie. Only the executable path is stored by macOS.
+func BestReview(executable string) Notifier {
+	n := Best("")
+	if t, ok := n.(TerminalNotifier); ok {
+		t.Execute = "'" + strings.ReplaceAll(executable, "'", "'\"'\"'") + "' review"
+		return t
+	}
+	return n
+}
+
+func helperPath(lookup func(string) (string, error)) string {
+	// launchd does not inherit the interactive shell's Homebrew PATH.
+	for _, candidate := range []string{"terminal-notifier", "/opt/homebrew/bin/terminal-notifier", "/usr/local/bin/terminal-notifier"} {
+		if path, err := lookup(candidate); err == nil {
+			return path
+		}
+	}
+	return ""
 }
 
 // appleScriptQuote renders s as a double-quoted AppleScript string literal,

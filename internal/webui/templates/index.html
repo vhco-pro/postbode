@@ -125,6 +125,20 @@
 </header>
 <p class="sub">Nothing is uploaded to ClearFacts until you approve it here.</p>
 
+{{if .Reconnected}}
+<p role="status">Gmail reconnected. Postbode will check for new mail on its next poll.</p>
+{{else if .ReauthNeeded}}
+<p role="alert">Gmail needs re-authentication. New mail cannot be checked until you reconnect.</p>
+{{end}}
+{{if .CanReconnect}}
+<div class="bar">
+  <form method="post" action="/auth/gmail/start">
+    <input type="hidden" name="t" value="{{.Token}}">
+    <button type="submit">Reconnect Gmail</button>
+  </form>
+</div>
+{{end}}
+
 {{if .Items}}
 <div class="bar">
   <form class="inline" method="post" action="/approve-all">

@@ -36,6 +36,7 @@ import (
 	"github.com/vhco-pro/postbode/internal/webui"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/option"
 )
 
 // defaultLogPath is F-65's local rotated daemon log location.
@@ -137,12 +138,17 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 		return 1
 	}
 
-	// Prefer terminal-notifier so clicking the notification opens the review
-	// queue; fall back to osascript, whose notifications open Script Editor
-	// instead (see notify.TerminalNotifier). The URL carries no token: the
-	// token is stable and the browser holds a cookie from any earlier
-	// `postbode review`, so the bare loopback URL is enough.
-	notifier := notify.Best("http://" + webui.DefaultAddr + "/")
+	executable, err := os.Executable()
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "postbode: locate notification click command: %v\n", err)
+		return 1
+	}
+	notifier := notify.BestReview(executable)
+	if helper, ok := notifier.(notify.TerminalNotifier); ok {
+		logf("daemon: clickable notifications via %s", helper.Path)
+	} else {
+		logf("daemon: terminal-notifier unavailable; notification clicks cannot open the browser. Install terminal-notifier; use postbode review in the meantime.")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -156,7 +162,7 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 	// /usr/bin/security at all, let alone prompting a real Keychain
 	// access dialog. No test may touch the real Keychain (this phase's
 	// own instructions).
-	svc, oauthCfg := buildGmailService(ctx, home, logf)
+	svc, oauthCfg, gmailTokens := buildGmailService(ctx, home, logf)
 	if svc == nil {
 		// Nothing in Postbode can run without a Gmail identity to poll —
 		// unlike a routine re-auth (F-16, handled once already running),
@@ -189,8 +195,7 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 			ParkRetryAttempts: cfg.Gmail.ParkRetryAttempts,
 			PollFailureBudget: cfg.Gmail.PollFailureBudget,
 		},
-		OAuthConfig: oauthCfg,
-		Logf:        logf,
+		Logf: logf,
 	}
 	watcher.Extractor.KnownPeppolGlobs = cfg.Vendors.KnownPeppol
 
@@ -215,6 +220,16 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "postbode: daemon: %v\n", err)
 		return 1
+	}
+	consentConfig := *oauthCfg
+	consentConfig.RedirectURL = "http://" + webui.DefaultAddr + "/auth/gmail/callback"
+	uiSrv.GmailAuth = &webui.GmailAuth{
+		Config: consentConfig,
+		Install: func(ctx context.Context, tok *oauth2.Token) error {
+			kcCtx, cancel := context.WithTimeout(ctx, keychainTimeout)
+			defer cancel()
+			return installGmailToken(kcCtx, store, gmailTokens, tok)
+		},
 	}
 
 	d := &daemon.Daemon{
@@ -289,21 +304,21 @@ func runDaemon(args []string, _, stderr io.Writer) int {
 }
 
 // buildGmailService resolves a Gmail identity from the Keychain (F-62)
-// and returns a ready *gmail.Service, or (nil, nil) when Postbode has
+// and returns a ready *gmail.Service, or three nils when Postbode has
 // never been authenticated yet (no credentials.json, or no cached token)
 // — a bootstrap condition, not a routine re-auth one (see runDaemon's
-// doc). oauthCfg is returned alongside svc so the caller can wire it into
-// Watcher.OAuthConfig for F-16's one-click re-auth notification URL.
-func buildGmailService(ctx context.Context, home string, logf func(string, ...any)) (*gmail.Service, *oauth2.Config) {
+// doc). The config and replaceable source let the local review UI persist a
+// browser consent result and repair this same service without a restart.
+func buildGmailService(ctx context.Context, home string, logf func(string, ...any)) (*gmail.Service, *oauth2.Config, *gmailwatch.ReplaceableTokenSource) {
 	credPath := defaultCredentialsPath(home)
 	if !gmailwatch.CredentialsFileExists(credPath) {
 		logf("daemon: %s not found — Gmail is not authenticated yet", credPath)
-		return nil, nil
+		return nil, nil, nil
 	}
 	oauthCfg, err := gmailwatch.LoadOAuthConfig(credPath)
 	if err != nil {
 		logf("daemon: load oauth config: %v", err)
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// The Keychain is only ever touched once a real credentials.json
@@ -336,19 +351,28 @@ func buildGmailService(ctx context.Context, home string, logf func(string, ...an
 		legacyTok, lerr := gmailwatch.LoadCachedToken(legacyPath)
 		if lerr != nil {
 			logf("daemon: no Gmail token in the Keychain (%v) and none cached on disk — not authenticated yet", err)
-			return nil, nil
+			return nil, nil, nil
 		}
 		logf("daemon: Keychain unavailable (%v); using the on-disk token cache at %s. "+
 			"To move it into the Keychain, run the daemon once from a terminal and "+
 			"click Always Allow on the prompt.", err, legacyPath)
 		tok = legacyTok
 	}
-	svc, err := gmailwatch.NewService(ctx, oauthCfg, tok)
+	tokens := gmailwatch.NewReplaceableTokenSource(ctx, oauthCfg, tok)
+	svc, err := gmail.NewService(ctx, option.WithHTTPClient(oauth2.NewClient(ctx, tokens)))
 	if err != nil {
 		logf("daemon: build gmail service: %v", err)
-		return nil, nil
+		return nil, nil, nil
 	}
-	return svc, oauthCfg
+	return svc, oauthCfg, tokens
+}
+
+func installGmailToken(ctx context.Context, store keychain.Store, source *gmailwatch.ReplaceableTokenSource, tok *oauth2.Token) error {
+	if err := keychain.SaveGmailToken(ctx, store, tok); err != nil {
+		return err
+	}
+	source.Replace(tok)
+	return nil
 }
 
 // migrateLegacyGmailToken copies cmd/spike's pre-Keychain disk-cached

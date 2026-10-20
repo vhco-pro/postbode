@@ -15,8 +15,11 @@ import (
 
 // listPageData is the top-level data passed to templates/index.html.
 type listPageData struct {
-	Token string
-	Items []itemView
+	Token        string
+	Items        []itemView
+	ReauthNeeded bool
+	CanReconnect bool
+	Reconnected  bool
 }
 
 // handleList renders GET / — the F-43 list view. It shows every item
@@ -34,6 +37,14 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := listPageData{Token: s.token, Items: make([]itemView, 0, len(items))}
+	st, err := s.db.GetSyncState(ctx)
+	if err != nil {
+		http.Error(w, "could not read Gmail connection status", http.StatusInternalServerError)
+		return
+	}
+	data.ReauthNeeded = st.LastAuthError != ""
+	data.CanReconnect = s.GmailAuth != nil && s.GmailAuth.Install != nil
+	data.Reconnected = r.URL.Query().Get("gmail") == "reconnected"
 	for _, item := range items {
 		data.Items = append(data.Items, s.buildItemView(ctx, item))
 	}

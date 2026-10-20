@@ -7,7 +7,6 @@ import (
 	"github.com/vhco-pro/postbode/internal/notify"
 	"github.com/vhco-pro/postbode/internal/queue"
 	"github.com/vhco-pro/postbode/internal/rules"
-	"golang.org/x/oauth2"
 	"google.golang.org/api/gmail/v1"
 )
 
@@ -131,12 +130,6 @@ type Watcher struct {
 	// computations, so those tests never sleep on wall-clock hours. Nil
 	// means the real clock. Same shape and same reason as uploader.Clock.
 	Clock func() time.Time
-
-	// OAuthConfig, when set, lets F-16's re-auth notification embed a real,
-	// ready-to-open consent URL rather than a generic instruction. The
-	// production daemon sets this to the same *oauth2.Config
-	// AuthenticateInteractive uses.
-	OAuthConfig *oauth2.Config
 
 	// Logf, when set, receives one line per notable poll event — most
 	// importantly "skip (L1): ..." on every F-30 replay skip (AC-10: "the
