@@ -7,7 +7,7 @@
 **Slug:** resilient-poll-failure-budget
 **References:** GitHub issues [vhco-pro/postbode#1](https://github.com/vhco-pro/postbode/issues/1) *(Poll wedges indefinitely on any non-404 per-message error)* and [vhco-pro/postbode#2](https://github.com/vhco-pro/postbode/issues/2) *(A stalled poll is silent: no notification, no alert, only a repeating log line)*. Both filed after the same production outage, 2026-08-22 → 2026-08-25. Follow-up to commit `c92fdb8` (`fix(gmailwatch): skip deleted messages instead of wedging the poll`).
 **Relationship to the main spec:** this is a **separate, additive** spec. `docs/specs/postbode-gmail-invoice-agent.spec.md` (v1.10/v1.11, the P0+P1 build) is **not modified by this document**. New requirement ids start at **F-70** and new criteria at **AC-34**, both above that spec's maxima (F-67, AC-33), so the two id spaces never collide. Where this spec cites `F-nn` below 70, `NF-nn` below 14, `AC-nn` below 34, `G-n` or `L1…L4`, it means the main spec's requirement of that number and does not restate it.
-**Constitution:** `vega.yaml` — archetype `go-daemon`, language `go`, `artifact.kind: binary`, `deploy_unit: launchd-launchagent`, `distribution: homebrew-tap`, `workflow.spec_mode: assisted`. Bindings `secret_manager`, `k8s_resources`, `apps`, `container_registry`, `image_name` are **n/a** and must not be asked for. Inherited Tier-3: `vega.spec.md`, `constitution.spec.md`, `lang-go.spec.md`. `gitops-layout.spec.md` and `runtime-containers.spec.md` are inherited but **do not apply** — no container image, no cluster, no overlays.
+**Workflow:** [AGENTS.md](../../AGENTS.md) selects vh-adlc and the pinned personal conventions. Postbode is a Go macOS binary distributed through Homebrew and run as a launchd LaunchAgent. Engie platform conventions do not apply.
 
 ---
 
@@ -295,7 +295,7 @@ Explicitly **not** covered:
 - **Automatic root-cause classification of park reasons** (grouping "disk full" versus "malformed MIME" into distinct states). The reason is recorded and reported verbatim; interpreting it stays human work.
 - **Aging out, archiving or garbage-collecting parked messages** — forbidden by F-79, not deferred.
 - **Health-check endpoints, telemetry or remote alerting.** Notifications are local `osascript` only; no cloud component, no telemetry (NF-05).
-- **Every Engie platform artifact** — no Kubernetes, no container image, no Argo CD, no cloud secret manager. Per `vega.yaml`, `artifact.kind: binary`, `deploy_unit: launchd-launchagent`; the inherited `gitops-layout` and `runtime-containers` Tier-3 specs do not apply.
+- **Engie platform artifacts:** no Kubernetes, container image, Argo CD or cloud secret manager. Postbode remains a local macOS binary managed by launchd.
 
 ---
 

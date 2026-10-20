@@ -29,6 +29,9 @@ review and check status changes. Do not create companion plans or summaries.
 The existing `*.spec.md`, `plans/`, `summaries/` and `decisions/` files retain the
 requirements and evidence from earlier work. They are legacy references, not
 vh-adlc status or acceptance records. Preserve their paths and requirement IDs.
+The installed `find --slug` does not discover the legacy `.spec.md` names.
+Check `docs/specs/_index.md` and `<slug>.spec.md` before creating a document,
+even when `vh-adlc find` returns no match.
 Before extending a legacy feature, adapt its existing feature document in place
 through vh-adlc's spec workflow and link its old plan and summary as history.
 Never infer a vh-adlc review or acceptance from an old completion claim.

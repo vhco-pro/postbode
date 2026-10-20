@@ -80,7 +80,7 @@ This plan implements the spec's bounded-loud-recoverable treatment for both. It 
 
 **Blocked on nothing.** No external service, no credential, no human gate. Both open questions are non-blocking (see [Open Questions](#open-questions)).
 
-**Must NOT be introduced:** no Kubernetes, no Argo CD, no Dockerfile, no container image, no cloud secret manager, no telemetry endpoint. `vega.yaml` declares `artifact.kind: binary`, `deploy_unit: launchd-launchagent`; the inherited `gitops-layout.spec.md` and `runtime-containers.spec.md` do not apply (spec §9, §Constitution).
+**Deployment constraints:** no Kubernetes, Argo CD, Dockerfile, container image, cloud secret manager or telemetry endpoint. Postbode is a local macOS binary run by launchd. [AGENTS.md](../AGENTS.md) defines the vh-adlc workflow.
 
 ---
 
