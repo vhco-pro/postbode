@@ -36,23 +36,19 @@ func isReauthError(err error) (reason string, ok bool) {
 // underlying token source has recovered, resumes normally with no daemon
 // restart required.
 func (w *Watcher) handleReauth(ctx context.Context, st queue.SyncState, reason string) (PollResult, error) {
+	alreadyNeeded := st.LastAuthError != ""
 	st.LastAuthError = reason
 	if err := w.DB.SaveSyncState(ctx, st); err != nil {
 		return PollResult{}, fmt.Errorf("gmailwatch: persist re-auth state: %w", err)
 	}
-	if w.Notifier != nil {
+	if w.Notifier != nil && !alreadyNeeded {
 		_ = w.Notifier.Notify(ctx, w.reauthNotification())
 	}
 	return PollResult{ReauthNeeded: true}, nil
 }
 
-// reauthNotification renders F-16's "one-click re-auth URL" notification.
-// When OAuthConfig is set, the message embeds a real, ready-to-open consent
-// URL; otherwise it falls back to a generic instruction.
+// Consent starts in the local UI, where the action remains available after
+// the notification is dismissed. The UI owns state, PKCE and the callback.
 func (w *Watcher) reauthNotification() string {
-	if w.OAuthConfig != nil {
-		url := w.OAuthConfig.AuthCodeURL("postbode-reauth", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
-		return fmt.Sprintf("Postbode: Gmail needs re-authentication. Open this URL to continue: %s", url)
-	}
-	return "Postbode: Gmail needs re-authentication. Re-run the interactive auth flow to continue."
+	return "Postbode: Gmail needs re-authentication. Click to open http://127.0.0.1:7391/ and choose Reconnect Gmail. Or run: postbode review"
 }

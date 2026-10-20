@@ -46,7 +46,6 @@ func TestPollSurvivesInvalidGrantAndResumesWithoutRestart(t *testing.T) {
 
 	db := openTestDB(t)
 	w := newTestWatcher(t, svc, db)
-	w.OAuthConfig = oauthCfg
 	fk := &notify.Fake{}
 	w.Notifier = fk
 

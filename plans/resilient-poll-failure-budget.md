@@ -13,6 +13,10 @@ lifecycle: transactional   # ADR-011: a plan is a transactional record (one chan
 
 # Plan: Resilient poll — per-message failure budget and stall escalation
 
+Historical plan. The [feature document](../docs/specs/resilient-poll-failure-budget.spec.md)
+now holds the vh-adlc scope, criteria, test plan and lifecycle. The phase status
+and metadata below predate vh-adlc and do not establish a current acceptance.
+
 This plan sequences `docs/specs/resilient-poll-failure-budget.spec.md` (F-70…F-87, NF-14…NF-19, AC-34…AC-47) into nine independently shippable phases that fix GitHub issues [#1](https://github.com/vhco-pro/postbode/issues/1) (poll wedges indefinitely on any non-404 per-message error) and [#2](https://github.com/vhco-pro/postbode/issues/2) (a stalled poll is silent). It is **additive to** `plans/postbode-gmail-invoice-agent.md`, which is not modified by this document.
 
 ---
@@ -80,7 +84,7 @@ This plan implements the spec's bounded-loud-recoverable treatment for both. It 
 
 **Blocked on nothing.** No external service, no credential, no human gate. Both open questions are non-blocking (see [Open Questions](#open-questions)).
 
-**Must NOT be introduced:** no Kubernetes, no Argo CD, no Dockerfile, no container image, no cloud secret manager, no telemetry endpoint. `vega.yaml` declares `artifact.kind: binary`, `deploy_unit: launchd-launchagent`; the inherited `gitops-layout.spec.md` and `runtime-containers.spec.md` do not apply (spec §9, §Constitution).
+**Deployment constraints:** no Kubernetes, Argo CD, Dockerfile, container image, cloud secret manager or telemetry endpoint. Postbode is a local macOS binary run by launchd. [AGENTS.md](../AGENTS.md) defines the vh-adlc workflow.
 
 ---
 
