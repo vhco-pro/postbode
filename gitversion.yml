@@ -1,25 +1,22 @@
-# https://gitversion.net/docs/reference/configuration
-# manually verify with `gitversion (/showconfig)`
+# michielvha/gitversion-tag-action's bundled configuration, except that chore:
+# does not bump. No tag-prefix: GitVersion's default reads 0.6.2 and v0.6.3 alike.
 workflow: GitHubFlow/v1
-tag-prefix: '' # No prefix on tags (tags are like 0.0.1, not v0.0.1)
-semantic-version-format: Loose # Allow non-strict semver tags
-# Custom version bump messages
-major-version-bump-message: '(BREAKING CHANGE|^.+!:)'
+major-version-bump-message: '(?m)(?-i)(^BREAKING[ -]CHANGE:|\A[a-zA-Z]+(\([^)]+\))?!:)'
 minor-version-bump-message: '^feat(\([^)]+\))?:\s'
 patch-version-bump-message: '^(fix|perf|refactor|revert)(\([^)]+\))?:\s'
+# Local exception (AGENTS.md): chore does not bump, unlike the bundled config.
 no-bump-message: '^(chore|docs|style|test|ci)(\([^)]+\))?:\s'
-commit-message-incrementing: Enabled # Evaluate all commit messages, not just merge commits
-# Custom strategies - this differs from default
+commit-message-incrementing: Enabled
 strategies:
-  - Fallback                    # Returns 0.0.0 when no base versions found, increments to 0.0.1 on first commit
+  - Fallback
   - MergeMessage
   - TaggedCommit
-  - TrackReleaseBranches # this ensures that commits from release branches are tracked and included in the versioning process.
+  - TrackReleaseBranches
   - VersionInBranchName
 branches:
   main:
     regex: ^master$|^main$
-    increment: Patch
+    increment: None
     prevent-increment:
       of-merged-branch: true
     track-merge-target: false
@@ -37,5 +34,6 @@ branches:
     mode: ContinuousDeployment
     source-branches:
       - main
+commit-date-format: ddMMyyyy
 assembly-versioning-scheme: MajorMinorPatch
 assembly-informational-format: '{SemVer}'

@@ -161,8 +161,8 @@ artifacts, `golangci-lint` in the same shape as the source-of-truth
 `template-go-app`. See `AGENTS.md`'s "Release engineering and commit messages" section for the
 full conventional-commit-to-version-bump table.
 
-- Tags are unprefixed (`0.1.4`, not `v0.1.4`), computed by GitVersion
-  (`gitversion.yml`) from commit message prefixes on `main`.
+- Tags are `v`-prefixed (`v0.6.3`; releases up to `0.6.2` are unprefixed),
+  computed by GitVersion (`gitversion.yml`) from commit message prefixes.
 - `.goreleaser.yml` builds **`darwin/amd64` and `darwin/arm64` only** —
   never `windows`/`linux`. Postbode shells out to `osascript` and
   `launchctl`, reads the macOS Keychain via `/usr/bin/security`, and
@@ -173,8 +173,12 @@ full conventional-commit-to-version-bump table.
   notification centre (see the spec's §9, out of scope).
 - Release artifacts are zipped, checksummed (`SHA256SUMS`), and the checksum
   file is GPG-signed before the GitHub release is published.
-- `.github/workflows/build-and-release.yaml` runs `go vet`, `make test`,
-  `make test-nonet` and `golangci-lint` before tagging and releasing.
+- [`ci.yml`](.github/workflows/ci.yml) runs on every branch push: `go-ci-action`
+  (format, tidy, vet, test, build, golangci-lint) plus `make check-gitignore` and
+  `make test-nonet`. When they pass, `vhco-pro/version-workflow` tags `main`, or a
+  branch whose open PR has the `release:preview` label. The tag push runs
+  [`release.yml`](.github/workflows/release.yml), which checks the tag again and
+  publishes the signed release through `vhco-pro/go-release-workflow`.
 
 ## Opening the review queue
 
