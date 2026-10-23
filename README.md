@@ -162,7 +162,8 @@ artifacts, `golangci-lint` in the same shape as the source-of-truth
 full conventional-commit-to-version-bump table.
 
 - Tags are `v`-prefixed (`v0.6.3`; releases up to `0.6.2` are unprefixed),
-  computed by GitVersion (`gitversion.yml`) from commit message prefixes.
+  computed by GitVersion (the configuration bundled with
+  `michielvha/gitversion-tag-action`) from commit message prefixes.
 - `.goreleaser.yml` builds **`darwin/amd64` and `darwin/arm64` only** —
   never `windows`/`linux`. Postbode shells out to `osascript` and
   `launchctl`, reads the macOS Keychain via `/usr/bin/security`, and
