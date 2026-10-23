@@ -118,23 +118,20 @@ developer's house release pipeline (GitVersion + GoReleaser + golangci-lint, see
 ### Release engineering and commit messages
 
 Versioning is driven entirely by conventional-commit prefixes on `main`, evaluated by GitVersion
-(`gitversion.yml`) against every commit message (`commit-message-incrementing: Enabled`), not just
+(the configuration bundled with `michielvha/gitversion-tag-action`) against every commit message (`commit-message-incrementing: Enabled`), not just
 merge commits. Get the prefix right or the release tag is wrong:
 
 | Prefix | Bump | Example |
 |---|---|---|
 | `feat:` / `feat(scope):` | **minor** | `feat(uploader): add retry backoff` |
-| `fix:`, `perf:`, `refactor:`, `revert:` | **patch** | `fix(dedup): correct L2 sha256 comparison` |
+| `fix:`, `chore:`, `perf:`, `refactor:`, `revert:` | **patch** | `fix(dedup): correct L2 sha256 comparison` |
 | `BREAKING CHANGE` in the body, or `!:` after the type (`feat!:`, `fix!:`) | **major** | `feat!: drop vatnumber upload argument` |
-| `chore:`, `docs:`, `style:`, `test:`, `ci:` | **no bump** | `docs: update README install steps` |
+| `docs:`, `style:`, `test:`, `ci:` | **no bump** | `docs: update README install steps` |
 
-Tags are unprefixed (`0.1.4`, not `v0.1.4`). `.goreleaser.yml` builds `darwin/amd64` and
+Tags are `v`-prefixed (`v0.6.3`); releases up to `0.6.2` are unprefixed. `.goreleaser.yml` builds `darwin/amd64` and
 `darwin/arm64` only (never `windows`/`linux`: see the deviation comment in that file), zips them,
 signs the checksum file with the developer's GPG key, and publishes a GitHub release. No container
 image is built or pushed. Run `make lint` (golangci-lint, `.golangci.yml`) as part of the local
-gate before pushing; CI (`.github/workflows/build-and-release.yaml`) runs `go vet`, `make test`,
-`make test-nonet` and golangci-lint before tagging and releasing.
-
-Local delivery exception: `gitversion.yml` keeps `chore:` as no bump. This differs
-from the pinned personal convention. Preserve the existing version policy and
-release-action refs until a release-engineering change explicitly updates them.
+gate before pushing; CI (`.github/workflows/ci.yml`) runs `go-ci-action` (vet, test, golangci-lint
+and more), `make check-gitignore` and `make test-nonet` before `vhco-pro/version-workflow` tags, and
+the tag push publishes through `vhco-pro/go-release-workflow`.
